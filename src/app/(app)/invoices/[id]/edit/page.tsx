@@ -8,7 +8,7 @@ import { getInvoiceWithItemsById, updateInvoiceAction, type InvoiceWithItems } f
 import { useToast } from "@/hooks/use-toast";
 import { InvoiceStatus } from '@/types/invoice';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
