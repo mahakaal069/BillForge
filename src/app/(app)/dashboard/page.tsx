@@ -7,7 +7,7 @@ import type { Invoice } from '@/types/invoice';
 import { InvoiceStatus } from '@/types/invoice';
 import { InvoiceStatusBadge } from '@/components/InvoiceStatusBadge';
 import { format } from 'date-fns';
-import { ArrowUpRight, PlusCircle, FileText, AlertTriangle } from 'lucide-react';
+import { ArrowUpRight, PlusCircle, FileText, AlertTriangle, Edit } from 'lucide-react';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 
@@ -34,7 +34,7 @@ export default async function DashboardPage() {
       due_date,
       status,
       created_at
-    `) 
+    `)
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
 
@@ -54,13 +54,13 @@ export default async function DashboardPage() {
     id: inv.id,
     invoiceNumber: inv.invoice_number,
     clientName: inv.client_name,
-    clientEmail: '', 
-    clientAddress: '', 
-    invoiceDate: '', 
+    clientEmail: '',
+    clientAddress: '',
+    invoiceDate: '',
     dueDate: inv.due_date,
-    items: [], 
-    subtotal: 0, 
-    taxAmount: 0, 
+    items: [],
+    subtotal: 0,
+    taxAmount: 0,
     totalAmount: inv.total_amount ?? 0,
     status: inv.status as InvoiceStatus,
     created_at: inv.created_at,
@@ -172,12 +172,22 @@ export default async function DashboardPage() {
                     <InvoiceStatusBadge status={invoice.status} />
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button variant="outline" size="sm" asChild>
-                      <Link href={`/invoices/${invoice.id}/view`}> 
-                        View
-                        <ArrowUpRight className="ml-2 h-4 w-4" />
-                      </Link>
-                    </Button>
+                    <div className="flex justify-end space-x-2">
+                      {invoice.status === InvoiceStatus.DRAFT && (
+                        <Button variant="outline" size="sm" asChild>
+                          <Link href={`/invoices/${invoice.id}/edit`}>
+                            <Edit className="mr-2 h-4 w-4" />
+                            Edit
+                          </Link>
+                        </Button>
+                      )}
+                      <Button variant="outline" size="sm" asChild>
+                        <Link href={`/invoices/${invoice.id}/view`}>
+                          View
+                          <ArrowUpRight className="ml-2 h-4 w-4" />
+                        </Link>
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

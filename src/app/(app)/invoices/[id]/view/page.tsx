@@ -1,13 +1,14 @@
 
 import { getInvoiceWithItemsById, type InvoiceWithItems } from '@/app/(app)/invoices/actions';
 import { InvoiceForm } from '@/components/invoice/InvoiceForm';
-import { AlertTriangle, FileWarning } from 'lucide-react';
+import { AlertTriangle, FileWarning, Edit } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { InvoiceStatusBadge } from '@/components/InvoiceStatusBadge';
 import { format } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
+import { InvoiceStatus } from '@/types/invoice'; // Ensure InvoiceStatus is imported
 
 function formatCurrency(amount: number | null | undefined) {
   if (amount === null || amount === undefined) return 'N/A';
@@ -39,11 +40,6 @@ export default async function ViewInvoicePage({ params }: { params: { id: string
     );
   }
 
-  // For the view page, we don't need actual submit handlers for the form.
-  // We can pass dummy functions or disable submission capabilities in InvoiceForm for 'view' mode.
-  // The InvoiceForm has been updated to handle a 'formMode="view"' prop.
-  const dummySubmit = async () => { /* no-op for view mode */ };
-
   return (
     <div className="max-w-4xl mx-auto">
       <div className="mb-6 flex justify-between items-center">
@@ -51,13 +47,21 @@ export default async function ViewInvoicePage({ params }: { params: { id: string
             <h1 className="text-2xl font-semibold">Invoice {invoice.invoiceNumber}</h1>
             <InvoiceStatusBadge status={invoice.status} className="mt-1"/>
         </div>
-        <Button variant="outline" asChild>
-            {/* Later, this could be an "Edit" button: <Link href={`/invoices/${invoice.id}/edit`}>Edit Invoice</Link> */}
-             <Link href={`/dashboard`}>Back to Dashboard</Link>
-        </Button>
+        <div className="flex items-center space-x-2">
+            {invoice.status === InvoiceStatus.DRAFT && (
+                <Button variant="outline" asChild>
+                    <Link href={`/invoices/${invoice.id}/edit`}>
+                        <Edit className="mr-2 h-4 w-4" />
+                        Edit Invoice
+                    </Link>
+                </Button>
+            )}
+            <Button variant="outline" asChild>
+                 <Link href={`/dashboard`}>Back to Dashboard</Link>
+            </Button>
+        </div>
       </div>
 
-      {/* Displaying key details directly, InvoiceForm can be used for a consistent layout if complex */}
       <Card>
         <CardHeader>
             <CardTitle>Client & Dates</CardTitle>
@@ -72,9 +76,9 @@ export default async function ViewInvoicePage({ params }: { params: { id: string
                 </div>
                 <div>
                     <h3 className="font-semibold text-muted-foreground">Invoice Date</h3>
-                    <p>{format(new Date(invoice.invoiceDate), 'PPP')}</p>
+                    <p>{invoice.invoiceDate ? format(new Date(invoice.invoiceDate), 'PPP') : 'N/A'}</p>
                     <h3 className="font-semibold text-muted-foreground mt-2">Due Date</h3>
-                    <p>{format(new Date(invoice.dueDate), 'PPP')}</p>
+                    <p>{invoice.dueDate ? format(new Date(invoice.dueDate), 'PPP') : 'N/A'}</p>
                 </div>
             </div>
             <Separator />
@@ -140,19 +144,13 @@ export default async function ViewInvoicePage({ params }: { params: { id: string
         </CardContent>
       </Card>
 
-      {/* Alternative: Using InvoiceForm in "view" mode */}
+      {/* Alternative: Using InvoiceForm in "view" mode if you prefer */}
       {/* <InvoiceForm
         initialData={invoice}
-        onSubmitSend={dummySubmit} // Not used in view mode
-        onSubmitDraft={dummySubmit} // Not used in view mode
+        onSubmitSend={async () => {}} // Not used in view mode
+        onSubmitDraft={async () => {}} // Not used in view mode
         formMode="view"
       /> */}
     </div>
   );
 }
-
-// Optional: Add a loading.tsx file in the same directory for a loading skeleton
-// src/app/(app)/invoices/[id]/view/loading.tsx
-// export default function LoadingInvoiceView() {
-//   return <div>Loading invoice details...</div>;
-// }
