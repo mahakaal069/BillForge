@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import React, { useEffect, useState, createContext, useContext } from 'react';
-import type { User as SupabaseUser } from '@supabase/supabase-js';
+import type { User as SupabaseUser, AuthSubscription } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase/client';
 
 import {
@@ -55,13 +55,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     getSession();
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: authStateChangeData } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
       setLoading(false);
     });
 
+    const authListenerSubscription = authStateChangeData?.subscription;
+
     return () => {
-      authListener?.unsubscribe();
+      authListenerSubscription?.unsubscribe();
     };
   }, []);
 
