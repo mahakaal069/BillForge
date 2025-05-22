@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { InvoiceFormValues } from '@/components/invoice/InvoiceForm';
-import { InvoiceStatus, type Invoice, type InvoiceItem } from '@/types/invoice'; // Added Invoice, InvoiceItem types
+import { InvoiceStatus, type Invoice, type InvoiceItem } from '@/types/invoice'; 
 
 export interface CreateInvoiceResult {
   success: boolean;
@@ -23,7 +23,6 @@ export async function createInvoiceAction(data: InvoiceFormValues, status: Invoi
 
   const { items, clientName, clientEmail, clientAddress, invoiceDate, dueDate, paymentTerms, notes, subtotal, taxAmount, totalAmount } = data;
 
-  // Ensure dates are in YYYY-MM-DD format for Supabase 'date' type
   const formattedInvoiceDate = invoiceDate ? invoiceDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
   const formattedDueDate = dueDate
     ? dueDate.toISOString().split('T')[0]
@@ -74,7 +73,6 @@ export async function createInvoiceAction(data: InvoiceFormValues, status: Invoi
 
     if (itemsError) {
       console.error('Error inserting invoice items:', itemsError);
-      // Rollback invoice creation if items fail
       await supabase.from('invoices').delete().eq('id', invoiceId);
       return { success: false, error: itemsError.message || 'Failed to create invoice items.' };
     }
@@ -82,10 +80,7 @@ export async function createInvoiceAction(data: InvoiceFormValues, status: Invoi
 
   revalidatePath('/dashboard');
   if (status === InvoiceStatus.SENT) {
-    revalidatePath(`/invoices/${invoiceId}/view`); // Revalidate view page too
-    // No automatic redirect here, page calling this action will handle redirect
-  } else if (status === InvoiceStatus.DRAFT) {
-     // No automatic redirect here for draft, page calling this action will handle redirect
+    revalidatePath(`/invoices/${invoiceId}/view`); 
   }
 
   return { success: true, invoiceId };
@@ -135,9 +130,9 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
     clientName: invoiceData.client_name,
     clientEmail: invoiceData.client_email,
     clientAddress: invoiceData.client_address,
-    invoiceDate: invoiceData.invoice_date, // Keep as string from DB
-    dueDate: invoiceData.due_date, // Keep as string from DB
-    items: (invoiceData.invoice_items || []).map((item: any) => ({ // ensure invoice_items is not null
+    invoiceDate: invoiceData.invoice_date,
+    dueDate: invoiceData.due_date, 
+    items: (invoiceData.invoice_items || []).map((item: any) => ({
         id: item.id,
         description: item.description,
         quantity: item.quantity,
@@ -185,22 +180,20 @@ export async function updateInvoiceAction(invoiceId: string, data: InvoiceFormVa
     subtotal: subtotal,
     tax_amount: taxAmount,
     total_amount: totalAmount,
-    updated_at: new Date().toISOString(), // Manually set updated_at
+    updated_at: new Date().toISOString(), 
   };
 
   const { error: invoiceUpdateError } = await supabase
     .from('invoices')
     .update(invoiceToUpdate)
     .eq('id', invoiceId)
-    .eq('user_id', user.id); // Ensure user can only update their own invoices
+    .eq('user_id', user.id); 
 
   if (invoiceUpdateError) {
     console.error('Error updating invoice:', invoiceUpdateError);
     return { success: false, error: invoiceUpdateError.message || 'Failed to update invoice.' };
   }
 
-  // For items, a common strategy is to delete all existing and re-insert
-  // This simplifies logic but can be optimized for large item lists
   const { error: deleteItemsError } = await supabase
     .from('invoice_items')
     .delete()
@@ -208,7 +201,6 @@ export async function updateInvoiceAction(invoiceId: string, data: InvoiceFormVa
 
   if (deleteItemsError) {
     console.error('Error deleting old invoice items:', deleteItemsError);
-    // Depending on desired behavior, you might want to stop or attempt to continue
     return { success: false, error: deleteItemsError.message || 'Failed to update invoice items (delete step).' };
   }
 
@@ -227,7 +219,6 @@ export async function updateInvoiceAction(invoiceId: string, data: InvoiceFormVa
 
     if (itemsInsertError) {
       console.error('Error inserting updated invoice items:', itemsInsertError);
-      // Potentially more complex rollback logic could be added here if needed
       return { success: false, error: itemsInsertError.message || 'Failed to update invoice items (insert step).' };
     }
   }
@@ -237,4 +228,49 @@ export async function updateInvoiceAction(invoiceId: string, data: InvoiceFormVa
   revalidatePath(`/invoices/${invoiceId}/edit`);
 
   return { success: true, invoiceId };
+}
+
+
+export async function deleteInvoiceAction(invoiceId: string): Promise<{ success: boolean; error?: string }> {
+  const supabase = createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: 'User not authenticated. Please log in.' };
+  }
+
+  // First, check if the user owns the invoice
+  const { data: invoice, error: fetchError } = await supabase
+    .from('invoices')
+    .select('id, user_id')
+    .eq('id', invoiceId)
+    .eq('user_id', user.id)
+    .single();
+
+  if (fetchError || !invoice) {
+    console.error('Error fetching invoice for deletion or invoice not found/not owned by user:', fetchError);
+    return { success: false, error: 'Invoice not found or you do not have permission to delete it.' };
+  }
+  
+  // If foreign keys from invoice_items to invoices are set with ON DELETE CASCADE,
+  // deleting the invoice will automatically delete its items.
+  // Otherwise, you would need to delete items first:
+  // await supabase.from('invoice_items').delete().eq('invoice_id', invoiceId);
+
+  const { error: deleteError } = await supabase
+    .from('invoices')
+    .delete()
+    .eq('id', invoiceId)
+    .eq('user_id', user.id); // Extra check for safety, though ownership is confirmed above
+
+  if (deleteError) {
+    console.error('Error deleting invoice:', deleteError);
+    return { success: false, error: deleteError.message || 'Failed to delete invoice.' };
+  }
+
+  revalidatePath('/dashboard');
+  // No specific redirect here as the calling component will handle it.
+  // Might also want to revalidate other paths if invoices appear elsewhere.
+
+  return { success: true };
 }

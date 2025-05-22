@@ -10,6 +10,7 @@ import { format } from 'date-fns';
 import { ArrowUpRight, PlusCircle, FileText, AlertTriangle, Edit } from 'lucide-react';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
+import { DeleteInvoiceDialog } from '@/components/invoice/DeleteInvoiceDialog'; // Import the new component
 
 function formatCurrency(amount: number | null | undefined) {
   if (amount === null || amount === undefined) return '$0.00';
@@ -187,6 +188,7 @@ export default async function DashboardPage() {
                           <ArrowUpRight className="ml-2 h-4 w-4" />
                         </Link>
                       </Button>
+                       <DeleteInvoiceDialog invoiceId={invoice.id} invoiceNumber={invoice.invoiceNumber} />
                     </div>
                   </TableCell>
                 </TableRow>

@@ -4,14 +4,26 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { InvoiceForm, type InvoiceFormValues } from '@/components/invoice/InvoiceForm';
-import { getInvoiceWithItemsById, updateInvoiceAction, type InvoiceWithItems } from '@/app/(app)/invoices/actions';
+import { getInvoiceWithItemsById, updateInvoiceAction, deleteInvoiceAction, type InvoiceWithItems } from '@/app/(app)/invoices/actions';
 import { useToast } from "@/hooks/use-toast";
 import { InvoiceStatus } from '@/types/invoice';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Trash2 } from 'lucide-react'; // Added Trash2
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+
 
 export default function EditInvoicePage() {
   const router = useRouter();
@@ -23,6 +35,9 @@ export default function EditInvoicePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSubmittingPage, setIsSubmittingPage] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+
 
   useEffect(() => {
     if (!invoiceId) {
@@ -33,7 +48,7 @@ export default function EditInvoicePage() {
 
     const fetchInvoice = async () => {
       setLoading(true);
-      setError(null); // Reset error before fetching
+      setError(null); 
       try {
         const data = await getInvoiceWithItemsById(invoiceId);
         if (data) {
@@ -86,7 +101,6 @@ export default function EditInvoicePage() {
     if (!initialData?.id) return;
     setIsSubmittingPage(true);
     try {
-      // When saving draft changes, the status should be DRAFT.
       const result = await updateInvoiceAction(initialData.id, data, InvoiceStatus.DRAFT);
       if (result.success && result.invoiceId) {
         toast({
@@ -110,6 +124,37 @@ export default function EditInvoicePage() {
       });
     } finally {
       setIsSubmittingPage(false);
+    }
+  };
+
+  const handleDeleteInvoice = async () => {
+    if (!initialData?.id) return;
+    setIsDeleting(true);
+    try {
+      const result = await deleteInvoiceAction(initialData.id);
+      if (result.success) {
+        toast({
+          title: 'Invoice Deleted',
+          description: `Invoice #${initialData.invoiceNumber} has been successfully deleted.`,
+        });
+        router.push('/dashboard');
+      } else {
+        toast({
+          title: 'Error Deleting Invoice',
+          description: result.error || 'An unexpected error occurred.',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to delete invoice:', error);
+      toast({
+        title: 'Deletion Error',
+        description: error instanceof Error ? error.message : 'An unexpected error occurred.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteDialog(false);
     }
   };
 
@@ -189,8 +234,36 @@ export default function EditInvoicePage() {
 
   return (
     <div className="max-w-4xl mx-auto">
+       <div className="mb-4 flex justify-end">
+        <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+            <AlertDialogTrigger asChild>
+            <Button variant="destructive" className="bg-red-600 hover:bg-red-700">
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete Invoice
+            </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+            <AlertDialogHeader>
+                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                <AlertDialogDescription>
+                This action cannot be undone. This will permanently delete invoice <strong>#{initialData.invoiceNumber}</strong>.
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+                <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                onClick={handleDeleteInvoice}
+                disabled={isDeleting}
+                className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                >
+                {isDeleting ? 'Deleting...' : 'Yes, delete invoice'}
+                </AlertDialogAction>
+            </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+      </div>
       <InvoiceForm
-        key={invoiceId} // Add key here
+        key={invoiceId} 
         initialData={transformedInitialData as any} 
         onSubmitSend={handleUpdateAndSend}
         onSubmitDraft={handleSaveDraftChanges}
