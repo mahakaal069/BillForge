@@ -379,10 +379,10 @@ export function InvoiceForm({ initialData, onSubmit }: InvoiceFormProps) {
                 AI Suggested Payment Terms
               </AlertDialogTitle>
               <AlertDialogDescription className="text-left whitespace-pre-wrap">
-                <p className="font-semibold mt-2">Suggested Terms:</p>
-                <p className="p-2 bg-muted rounded-md my-1">{suggestedTermsResult.suggestedTerms}</p>
-                <p className="font-semibold mt-2">Reasoning:</p>
-                <p className="p-2 bg-muted rounded-md my-1 text-sm">{suggestedTermsResult.reasoning}</p>
+                <div className="font-semibold mt-2">Suggested Terms:</div>
+                <div className="p-2 bg-muted rounded-md my-1">{suggestedTermsResult.suggestedTerms}</div>
+                <div className="font-semibold mt-2">Reasoning:</div>
+                <div className="p-2 bg-muted rounded-md my-1 text-sm">{suggestedTermsResult.reasoning}</div>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -397,3 +397,5 @@ export function InvoiceForm({ initialData, onSubmit }: InvoiceFormProps) {
     </Card>
   );
 }
+
+    
