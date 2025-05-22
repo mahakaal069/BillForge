@@ -19,7 +19,7 @@ import { InvoiceItemsTable } from './InvoiceItemsTable';
 import type { Invoice, InvoiceItem as InvoiceItemType } from '@/types/invoice'; // Renamed to avoid conflict
 import { InvoiceStatus, type ClientHistoryOption } from '@/types/invoice';
 import { CLIENT_HISTORY_OPTIONS, DEFAULT_INDUSTRY_STANDARDS } from '@/lib/constants';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { suggestPaymentTermsAction } from '@/app/(app)/invoices/new/actions';
 import { useToast } from "@/hooks/use-toast";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
@@ -36,8 +36,8 @@ const invoiceFormSchema = z.object({
   clientName: z.string().min(1, 'Client name is required.'),
   clientEmail: z.string().email('Invalid email address.'),
   clientAddress: z.string().min(1, 'Client address is required.'),
-  invoiceDate: z.date({ required_error: 'Invoice date is required.' }),
-  dueDate: z.date({ required_error: 'Due date is required.' }),
+  invoiceDate: z.date({ required_error: 'Invoice date is required.' }).optional().nullable(), // Allow undefined/null for client-side init
+  dueDate: z.date({ required_error: 'Due date is required.' }).optional().nullable(), // Allow undefined/null for client-side init
   items: z.array(invoiceItemSchema).min(1, 'At least one item is required.'),
   paymentTerms: z.string().optional(),
   notes: z.string().optional(),
@@ -72,8 +72,8 @@ export function InvoiceForm({ initialData, onSubmit }: InvoiceFormProps) {
       clientName: initialData?.clientName || '',
       clientEmail: initialData?.clientEmail || '',
       clientAddress: initialData?.clientAddress || '',
-      invoiceDate: initialData?.invoiceDate ? new Date(initialData.invoiceDate) : new Date(),
-      dueDate: initialData?.dueDate ? new Date(initialData.dueDate) : new Date(new Date().setDate(new Date().getDate() + 30)),
+      invoiceDate: initialData?.invoiceDate ? new Date(initialData.invoiceDate) : undefined,
+      dueDate: initialData?.dueDate ? new Date(initialData.dueDate) : undefined,
       items: initialData?.items?.map(item => ({...item})) || [{ description: '', quantity: 1, unitPrice: 0, total: 0 }],
       paymentTerms: initialData?.paymentTerms || '',
       notes: initialData?.notes || '',
@@ -85,23 +85,27 @@ export function InvoiceForm({ initialData, onSubmit }: InvoiceFormProps) {
     },
   });
 
-  React.useEffect(() => { // Initialize totals on mount if initialData is provided
-    if (initialData?.items) {
-        const items = form.getValues('items');
-        const subtotal = items.reduce((sum, item) => sum + (item.total || 0), 0);
-        const taxAmount = 0; // Simplified
-        const totalAmount = subtotal + taxAmount;
-        form.setValue('subtotal', subtotal);
-        form.setValue('taxAmount', taxAmount);
-        form.setValue('totalAmount', totalAmount);
+  useEffect(() => {
+    // Set default dates only on the client for new invoices to avoid hydration mismatch
+    if (!initialData?.invoiceDate && !form.getValues('invoiceDate')) {
+      form.setValue('invoiceDate', new Date(), { shouldDirty: false, shouldValidate: true });
     }
-  }, [initialData, form]);
+    if (!initialData?.dueDate && !form.getValues('dueDate')) {
+      form.setValue('dueDate', new Date(new Date().setDate(new Date().getDate() + 30)), { shouldDirty: false, shouldValidate: true });
+    }
+  }, [initialData, form.setValue, form.getValues]);
 
 
   const handleSubmit = async (data: InvoiceFormValues) => {
     setIsSubmitting(true);
     try {
-      await onSubmit(data);
+      // Ensure dates are not null before submitting if your backend expects Date objects
+      const submissionData = {
+        ...data,
+        invoiceDate: data.invoiceDate || new Date(), // Fallback if still null, though unlikely if validation passes
+        dueDate: data.dueDate || new Date(new Date().setDate(new Date().getDate() + 30)), // Fallback
+      };
+      await onSubmit(submissionData);
       toast({
         title: "Invoice Saved!",
         description: "Your invoice has been successfully saved.",
@@ -230,7 +234,7 @@ export function InvoiceForm({ initialData, onSubmit }: InvoiceFormProps) {
                         </FormControl>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
+                        <Calendar mode="single" selected={field.value || undefined} onSelect={field.onChange} initialFocus disabled={(date) => date > new Date() || date < new Date("1900-01-01")} />
                       </PopoverContent>
                     </Popover>
                     <FormMessage />
@@ -256,7 +260,7 @@ export function InvoiceForm({ initialData, onSubmit }: InvoiceFormProps) {
                         </FormControl>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
+                        <Calendar mode="single" selected={field.value || undefined} onSelect={field.onChange} initialFocus />
                       </PopoverContent>
                     </Popover>
                     <FormMessage />

@@ -1,8 +1,20 @@
+
 import type { Invoice } from '@/types/invoice';
 import { InvoiceStatus } from '@/types/invoice';
 
-const today = new Date();
-const formatDate = (date: Date): string => date.toISOString().split('T')[0];
+// Using fixed static dates to avoid hydration issues with new Date() at module level.
+// Format: YYYY-MM-DD
+const STATIC_DATES = {
+  inv1_invoice: '2023-10-01',
+  inv1_due: '2023-10-31',
+  inv2_invoice: '2023-11-05',
+  inv2_due: '2023-12-05',
+  inv3_invoice: '2023-09-15',
+  inv3_due: '2023-10-15', // Overdue
+  inv4_invoice: '2023-11-25',
+  inv4_due: '2023-12-25',
+};
+
 
 const createMockItem = (id: number, quantity: number, unitPrice: number) => ({
   id: `item-${id}-${Math.random().toString(36).substring(7)}`,
@@ -40,8 +52,8 @@ export const MOCK_INVOICES: Invoice[] = [
     clientName: 'Alpha Corp',
     clientEmail: 'alpha@example.com',
     clientAddress: '123 Alpha St, Alphacity, AL 12345',
-    invoiceDate: formatDate(new Date(today.setDate(today.getDate() - 30))),
-    dueDate: formatDate(new Date(today.setDate(today.getDate() + 0))), // Due today
+    invoiceDate: STATIC_DATES.inv1_invoice,
+    dueDate: STATIC_DATES.inv1_due,
     items: items1,
     ...totals1,
     status: InvoiceStatus.PAID,
@@ -53,8 +65,8 @@ export const MOCK_INVOICES: Invoice[] = [
     clientName: 'Beta Solutions',
     clientEmail: 'beta@example.com',
     clientAddress: '456 Beta Ave, Betatown, BT 67890',
-    invoiceDate: formatDate(new Date(today.setDate(today.getDate() - 15))),
-    dueDate: formatDate(new Date(today.setDate(today.getDate() + 15))), // Due in 15 days
+    invoiceDate: STATIC_DATES.inv2_invoice,
+    dueDate: STATIC_DATES.inv2_due,
     items: items2,
     ...totals2,
     status: InvoiceStatus.SENT,
@@ -66,8 +78,8 @@ export const MOCK_INVOICES: Invoice[] = [
     clientName: 'Gamma Inc',
     clientEmail: 'gamma@example.com',
     clientAddress: '789 Gamma Rd, Gammaville, GA 54321',
-    invoiceDate: formatDate(new Date(today.setDate(today.getDate() - 45))),
-    dueDate: formatDate(new Date(today.setDate(today.getDate() - 15))), // Overdue by 15 days
+    invoiceDate: STATIC_DATES.inv3_invoice,
+    dueDate: STATIC_DATES.inv3_due,
     items: items3,
     ...totals3,
     status: InvoiceStatus.OVERDUE,
@@ -80,8 +92,8 @@ export const MOCK_INVOICES: Invoice[] = [
     clientName: 'Delta Services',
     clientEmail: 'delta@example.com',
     clientAddress: '101 Delta Blvd, Deltaport, DL 09876',
-    invoiceDate: formatDate(new Date(today.setDate(today.getDate() - 5))),
-    dueDate: formatDate(new Date(today.setDate(today.getDate() + 25))), // Due in 25 days
+    invoiceDate: STATIC_DATES.inv4_invoice,
+    dueDate: STATIC_DATES.inv4_due,
     items: items4,
     ...totals4,
     status: InvoiceStatus.DRAFT,
