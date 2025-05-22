@@ -33,6 +33,7 @@ export default function EditInvoicePage() {
 
     const fetchInvoice = async () => {
       setLoading(true);
+      setError(null); // Reset error before fetching
       try {
         const data = await getInvoiceWithItemsById(invoiceId);
         if (data) {
@@ -52,7 +53,7 @@ export default function EditInvoicePage() {
   }, [invoiceId]);
 
   const handleUpdateAndSend = async (data: InvoiceFormValues) => {
-    if (!initialData) return;
+    if (!initialData?.id) return;
     setIsSubmittingPage(true);
     try {
       const result = await updateInvoiceAction(initialData.id, data, InvoiceStatus.SENT);
@@ -82,12 +83,11 @@ export default function EditInvoicePage() {
   };
 
   const handleSaveDraftChanges = async (data: InvoiceFormValues) => {
-    if (!initialData) return;
+    if (!initialData?.id) return;
     setIsSubmittingPage(true);
     try {
-      // Determine if the status is changing from DRAFT to something else, or just updating a DRAFT
-      const newStatus = data.status || initialData.status; // If form has status field, use it. Else keep old.
-      const result = await updateInvoiceAction(initialData.id, data, newStatus);
+      // When saving draft changes, the status should be DRAFT.
+      const result = await updateInvoiceAction(initialData.id, data, InvoiceStatus.DRAFT);
       if (result.success && result.invoiceId) {
         toast({
           title: "Draft Updated!",
@@ -174,8 +174,6 @@ export default function EditInvoicePage() {
     );
   }
   
-  // The Invoice type from Supabase might have invoice_date and due_date as strings.
-  // InvoiceForm expects Date objects for these if they are present.
   const transformedInitialData = {
     ...initialData,
     invoiceDate: initialData.invoiceDate ? new Date(initialData.invoiceDate) : undefined,
@@ -183,17 +181,17 @@ export default function EditInvoicePage() {
     items: initialData.items.map(item => ({
         id: item.id,
         description: item.description || '',
-        quantity: Number(item.quantity) || 0, // ensure number
-        unitPrice: Number(item.unitPrice) || 0, // ensure number
-        total: Number(item.total) || 0 // ensure number
+        quantity: Number(item.quantity) || 0,
+        unitPrice: Number(item.unitPrice) || 0,
+        total: Number(item.total) || 0
     }))
   };
-
 
   return (
     <div className="max-w-4xl mx-auto">
       <InvoiceForm
-        initialData={transformedInitialData as any} // Cast needed due to date transformation
+        key={invoiceId} // Add key here
+        initialData={transformedInitialData as any} 
         onSubmitSend={handleUpdateAndSend}
         onSubmitDraft={handleSaveDraftChanges}
         isSubmitting={isSubmittingPage}
