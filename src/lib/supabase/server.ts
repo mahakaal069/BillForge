@@ -1,11 +1,16 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase URL or Anon Key for server client. Check your environment variables.');
+  throw new Error(
+    'CRITICAL ERROR: Supabase URL or Anon Key is missing for server client in src/lib/supabase/server.ts. ' +
+    'Please check your environment variables (e.g., .env.local or deployment settings) ' +
+    'and ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set correctly. ' +
+    'If you just created/modified .env.local, please restart your Next.js development server.'
+  );
 }
 
 export function createSupabaseServerClient() {

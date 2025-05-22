@@ -1,11 +1,25 @@
+
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error(
+      'CRITICAL ERROR (Middleware): Supabase URL or Anon Key is missing. ' +
+      'Ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in your environment. ' +
+      'If running locally, check .env.local and restart the dev server. ' +
+      'For deployments, check your hosting provider s environment variable settings.'
+    );
+    // Optional: return a generic error response or redirect, though Supabase client init will also throw
+    // For now, letting it proceed to the Supabase client init to throw its own more specific error
+    // which the user is currently seeing. The console.error above is for server logs.
+     throw new Error('Middleware: Supabase environment variables are not set. Check server logs.');
+  }
 
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
