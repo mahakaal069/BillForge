@@ -26,7 +26,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 
 
 const invoiceItemSchema = z.object({
-  id: z.string().optional(), // Keep id optional as it might not exist for new items
+  id: z.string().optional(),
   description: z.string().min(1, 'Description is required.'),
   quantity: z.number().min(0.01, 'Quantity must be positive.'),
   unitPrice: z.number().min(0, 'Unit price must be non-negative.'),
@@ -52,7 +52,7 @@ const invoiceFormSchema = z.object({
 export type InvoiceFormValues = z.infer<typeof invoiceFormSchema>;
 
 interface InvoiceFormProps {
-  initialData?: Partial<Invoice>;
+  initialData?: Partial<Invoice & { items: Array<Partial<Invoice['items'][0]>> }>; // Allow partial items for initialData
   onSubmitSend: (data: InvoiceFormValues) => Promise<void>;
   onSubmitDraft: (data: InvoiceFormValues) => Promise<void>;
   isSubmitting?: boolean;
@@ -74,30 +74,48 @@ export function InvoiceForm({
   const form = useForm<InvoiceFormValues>({
     resolver: zodResolver(invoiceFormSchema),
     defaultValues: {
-      clientName: initialData?.clientName || '',
-      clientEmail: initialData?.clientEmail || '',
-      clientAddress: initialData?.clientAddress || '',
-      invoiceDate: initialData?.invoiceDate ? new Date(initialData.invoiceDate) : undefined,
-      dueDate: initialData?.dueDate ? new Date(initialData.dueDate) : undefined,
-      items: initialData?.items?.map(item => ({
-        id: item.id || `temp-${Math.random().toString(36).substring(7)}`, // Ensure items have an id for key prop
-        description: item.description || '',
-        quantity: item.quantity || 1,
-        unitPrice: item.unitPrice || 0,
-        total: item.total || 0,
-      })) || [{ description: '', quantity: 1, unitPrice: 0, total: 0, id: `temp-${Math.random().toString(36).substring(7)}` }],
-      paymentTerms: initialData?.paymentTerms || '',
-      notes: initialData?.notes || '',
+      clientName: '',
+      clientEmail: '',
+      clientAddress: '',
+      invoiceDate: undefined, // Will be set by useEffect or initialData
+      dueDate: undefined, // Will be set by useEffect or initialData
+      items: [{ description: '', quantity: 1, unitPrice: 0, total: 0, id: `temp-${Math.random().toString(36).substring(7)}` }],
+      paymentTerms: '',
+      notes: '',
       clientHistory: CLIENT_HISTORY_OPTIONS[0].value,
       industryStandards: DEFAULT_INDUSTRY_STANDARDS,
-      subtotal: initialData?.subtotal || 0,
-      taxAmount: initialData?.taxAmount || 0,
-      totalAmount: initialData?.totalAmount || 0,
+      subtotal: 0,
+      taxAmount: 0,
+      totalAmount: 0,
     },
   });
 
   useEffect(() => {
-    if (formMode === 'create') {
+    if (formMode === 'edit' && initialData) {
+      form.reset({
+        clientName: initialData.clientName || '',
+        clientEmail: initialData.clientEmail || '',
+        clientAddress: initialData.clientAddress || '',
+        invoiceDate: initialData.invoiceDate ? new Date(initialData.invoiceDate) : new Date(),
+        dueDate: initialData.dueDate ? new Date(initialData.dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        items: initialData.items?.map(item => ({
+          id: item.id || `temp-${Math.random().toString(36).substring(7)}`,
+          description: item.description || '',
+          quantity: Number(item.quantity) || 1,
+          unitPrice: Number(item.unitPrice) || 0,
+          total: Number(item.total) || 0,
+        })) || [{ description: '', quantity: 1, unitPrice: 0, total: 0, id: `temp-${Math.random().toString(36).substring(7)}` }],
+        paymentTerms: initialData.paymentTerms || '',
+        notes: initialData.notes || '',
+        // These fields are for AI suggestions and not part of the core Invoice data model for initialData
+        clientHistory: form.getValues('clientHistory') || CLIENT_HISTORY_OPTIONS[0].value,
+        industryStandards: form.getValues('industryStandards') || DEFAULT_INDUSTRY_STANDARDS,
+        subtotal: Number(initialData.subtotal) || 0,
+        taxAmount: Number(initialData.taxAmount) || 0,
+        totalAmount: Number(initialData.totalAmount) || 0,
+      });
+    } else if (formMode === 'create') {
+      // Ensure default dates and at least one item for 'create' mode if not already set by defaultValues or user interaction
       if (!form.getValues('invoiceDate')) {
         form.setValue('invoiceDate', new Date(), { shouldValidate: true, shouldDirty: true });
       }
@@ -106,26 +124,12 @@ export function InvoiceForm({
         thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
         form.setValue('dueDate', thirtyDaysFromNow, { shouldValidate: true, shouldDirty: true });
       }
+      if (!form.getValues('items') || form.getValues('items').length === 0) {
+         form.setValue('items', [{ description: '', quantity: 1, unitPrice: 0, total: 0, id: `temp-${Math.random().toString(36).substring(7)}` }]);
+      }
     }
-     // If initialData changes (e.g., when an "edit" form loads data), reset the form
-    if (initialData && formMode === 'edit') {
-      form.reset({
-        clientName: initialData.clientName || '',
-        clientEmail: initialData.clientEmail || '',
-        clientAddress: initialData.clientAddress || '',
-        invoiceDate: initialData.invoiceDate ? new Date(initialData.invoiceDate) : new Date(),
-        dueDate: initialData.dueDate ? new Date(initialData.dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        items: initialData.items?.map(item => ({ ...item, id: item.id || `temp-${Math.random().toString(36).substring(7)}` })) || [],
-        paymentTerms: initialData.paymentTerms || '',
-        notes: initialData.notes || '',
-        clientHistory: CLIENT_HISTORY_OPTIONS[0].value, // Or load from DB if saved
-        industryStandards: DEFAULT_INDUSTRY_STANDARDS, // Or load from DB
-        subtotal: initialData.subtotal || 0,
-        taxAmount: initialData.taxAmount || 0,
-        totalAmount: initialData.totalAmount || 0,
-      });
-    }
-  }, [initialData, form.setValue, form.getValues, formMode, form.reset]);
+  }, [initialData, formMode, form]); // form instance is stable, methods like reset, setValue, getValues are stable.
+                                     // This effect runs when initialData or formMode changes.
   
   const handleSuggestTerms = async () => {
     setIsLoadingTerms(true);
@@ -300,7 +304,7 @@ export function InvoiceForm({
                       render={({ field }) => (
                       <FormItem>
                           <FormLabel>Client Payment History</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isViewMode}>
                           <FormControl>
                               <SelectTrigger>
                               <SelectValue placeholder="Select client payment history" />
@@ -330,6 +334,7 @@ export function InvoiceForm({
                               placeholder="e.g., Net 30 for SaaS, 50% upfront for large projects"
                               {...field}
                               rows={3}
+                              disabled={isViewMode}
                           />
                           </FormControl>
                           <FormDescription>What are typical payment terms in this industry?</FormDescription>
@@ -337,7 +342,7 @@ export function InvoiceForm({
                       </FormItem>
                       )}
                   />
-                   <Button type="button" variant="outline" onClick={handleSuggestTerms} disabled={isLoadingTerms} className="bg-accent text-accent-foreground hover:bg-accent/90">
+                   <Button type="button" variant="outline" onClick={handleSuggestTerms} disabled={isLoadingTerms || isViewMode} className="bg-accent text-accent-foreground hover:bg-accent/90">
                       {isLoadingTerms ? "Suggesting..." : "Suggest Optimal Terms with AI"}
                   </Button>
               </div>
@@ -394,7 +399,7 @@ export function InvoiceForm({
               </>
             )}
             {/* "Export as PDF" button can be enabled later */}
-            <Button type="button" variant="secondary" className="ml-auto" disabled>
+            <Button type="button" variant="secondary" className="ml-auto" disabled> {/* Consider enabling if viewMode */}
                <Download className="mr-2 h-4 w-4" /> Export as PDF
             </Button>
           </CardFooter>
