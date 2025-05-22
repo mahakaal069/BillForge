@@ -1,11 +1,12 @@
 
-'use client'; // This layout now needs to be a client component for hooks and Supabase auth state
+'use client'; 
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import React, { useEffect, useState, createContext, useContext } from 'react';
 import type { User as SupabaseUser, AuthSubscription } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase/client';
+import type { Profile } from '@/types/user'; // Import Profile type
 
 import {
   SidebarProvider,
@@ -22,7 +23,7 @@ import {
 import { AppLogo } from '@/components/AppLogo';
 import { NAV_LINKS } from '@/lib/constants';
 import { Button } from '@/components/ui/button';
-import { Home, Settings, User, LogOut, LogIn } from 'lucide-react';
+import { Home, Settings, User, LogOut, LogIn, Briefcase, Building } from 'lucide-react'; // Added Briefcase, Building
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -37,6 +38,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 interface AuthContextType {
   user: SupabaseUser | null;
+  profile: Profile | null; // Add profile to context
   loading: boolean;
 }
 
@@ -44,19 +46,47 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<SupabaseUser | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null); // Add profile state
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const getSession = async () => {
+    const fetchUserProfile = async (userId: string) => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      
+      if (error) {
+        console.error('Error fetching user profile:', error);
+        setProfile(null);
+      } else {
+        setProfile(data as Profile);
+      }
+    };
+
+    const getSessionAndProfile = async () => {
+      setLoading(true);
       const { data: { session } } = await supabase.auth.getSession();
       setUser(session?.user ?? null);
+      if (session?.user) {
+        await fetchUserProfile(session.user.id);
+      } else {
+        setProfile(null);
+      }
       setLoading(false);
     };
 
-    getSession();
+    getSessionAndProfile();
 
-    const { data: authStateChangeData } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: authStateChangeData } = supabase.auth.onAuthStateChange(async (event, session) => {
+      setLoading(true);
       setUser(session?.user ?? null);
+      if (session?.user) {
+        await fetchUserProfile(session.user.id);
+      } else {
+        setProfile(null);
+      }
       setLoading(false);
     });
 
@@ -68,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading }}>
+    <AuthContext.Provider value={{ user, profile, loading }}>
       {children}
     </AuthContext.Provider>
   );
@@ -84,20 +114,21 @@ export const useAuth = () => {
 
 
 function UserNav() {
-  const { user, loading } = useAuth();
+  const { user, profile, loading } = useAuth(); // Get profile from context
   const router = useRouter();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push('/login');
-    router.refresh(); // Ensure server components and middleware rerender
+    router.refresh(); 
   };
 
   if (loading) {
     return (
-      <div className="flex items-center space-x-2">
+      <div className="flex items-center space-x-2 p-2">
         <Skeleton className="h-8 w-8 rounded-full" />
         <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-4 w-10 ml-auto" />
       </div>
     );
   }
@@ -114,16 +145,26 @@ function UserNav() {
 
   const userEmail = user.email || "User";
   const fallbackInitial = userEmail.charAt(0).toUpperCase();
+  const userRole = profile?.role;
+  const RoleIcon = userRole === 'MSME' ? Briefcase : userRole === 'BUYER' ? Building : User;
+
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="relative h-8 w-full justify-start px-2">
+        <Button variant="ghost" className="relative h-auto w-full justify-start px-2 py-1.5 text-left">
           <Avatar className="h-7 w-7 mr-2">
             {/* <AvatarImage src={user.user_metadata?.avatar_url} alt={userEmail} /> */}
             <AvatarFallback>{fallbackInitial}</AvatarFallback>
           </Avatar>
-          <span className="truncate max-w-[100px]">{userEmail}</span>
+          <div className="flex flex-col flex-grow overflow-hidden">
+            <span className="truncate text-sm font-medium">{profile?.full_name || userEmail}</span>
+            {userRole && (
+              <span className="text-xs text-muted-foreground flex items-center">
+                <RoleIcon className="h-3 w-3 mr-1" /> {userRole}
+              </span>
+            )}
+          </div>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56" align="end" forceMount>
@@ -133,6 +174,11 @@ function UserNav() {
             <p className="text-xs leading-none text-muted-foreground truncate">
               {userEmail}
             </p>
+            {userRole && (
+                 <p className="text-xs leading-none text-muted-foreground flex items-center pt-1">
+                    <RoleIcon className="h-3 w-3 mr-1" /> Role: {userRole}
+                 </p>
+            )}
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />

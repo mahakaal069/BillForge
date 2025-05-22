@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -8,8 +9,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AppLogo } from '@/components/AppLogo';
 import { useToast } from "@/hooks/use-toast";
+import { UserRole } from '@/types/user';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -17,12 +20,22 @@ export default function SignupPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
+  const [role, setRole] = useState<UserRole | ''>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const handleSignup = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!role) {
+      setError("Please select a role.");
+      toast({
+        title: "Role Required",
+        description: "Please select whether you are an MSME or a Buyer.",
+        variant: "destructive",
+      });
+      return;
+    }
     setLoading(true);
     setError(null);
     setMessage(null);
@@ -33,6 +46,7 @@ export default function SignupPage() {
       options: {
         data: {
           full_name: fullName,
+          role: role, // Pass the selected role here
         },
         // emailRedirectTo: `${window.location.origin}/auth/callback`, // Optional: if you have email confirmation enabled
       },
@@ -119,6 +133,22 @@ export default function SignupPage() {
                 disabled={loading}
               />
                <p className="text-xs text-muted-foreground">Password should be at least 6 characters.</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="role">I am a...</Label>
+              <Select 
+                value={role} 
+                onValueChange={(value) => setRole(value as UserRole)}
+                disabled={loading}
+              >
+                <SelectTrigger id="role">
+                  <SelectValue placeholder="Select your role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={UserRole.MSME}>MSME (Enterprise/Seller)</SelectItem>
+                  <SelectItem value={UserRole.BUYER}>Buyer (Customer)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             {message && <p className="text-sm text-green-600">{message}</p>}
