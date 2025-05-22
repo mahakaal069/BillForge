@@ -1,19 +1,80 @@
+
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { MOCK_INVOICES } from '@/lib/mock-data';
 import type { Invoice } from '@/types/invoice';
+import { InvoiceStatus } from '@/types/invoice';
 import { InvoiceStatusBadge } from '@/components/InvoiceStatusBadge';
 import { format } from 'date-fns';
-import { ArrowUpRight, PlusCircle, FileText } from 'lucide-react';
+import { ArrowUpRight, PlusCircle, FileText, AlertTriangle } from 'lucide-react';
+import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { redirect } from 'next/navigation';
 
-function formatCurrency(amount: number) {
+function formatCurrency(amount: number | null | undefined) {
+  if (amount === null || amount === undefined) return '$0.00';
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
 }
 
-export default function DashboardPage() {
-  const invoices = MOCK_INVOICES; // In a real app, fetch this data
+export default async function DashboardPage() {
+  const supabase = createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    // This should ideally be handled by middleware, but as a safeguard:
+    redirect('/login');
+  }
+
+  const { data: invoicesData, error: invoicesError } = await supabase
+    .from('invoices')
+    .select(`
+      id,
+      invoice_number,
+      client_name,
+      total_amount,
+      due_date,
+      status
+    `) // Fetch only necessary fields for the dashboard list
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false });
+
+  if (invoicesError) {
+    console.error('Error fetching invoices:', invoicesError);
+    // Handle error display appropriately
+    return (
+        <div className="flex flex-col items-center justify-center h-full">
+            <AlertTriangle className="w-12 h-12 text-destructive mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Error Fetching Invoices</h2>
+            <p className="text-muted-foreground">Could not load your invoice data. Please try again later.</p>
+            <p className="text-xs text-muted-foreground mt-2">{invoicesError.message}</p>
+        </div>
+    );
+  }
+
+  const invoices: Invoice[] = (invoicesData || []).map(inv => ({
+    id: inv.id,
+    invoiceNumber: inv.invoice_number,
+    clientName: inv.client_name,
+    clientEmail: '', // Not fetched for dashboard summary
+    clientAddress: '', // Not fetched for dashboard summary
+    invoiceDate: '', // Not fetched for dashboard summary, can be added if needed
+    dueDate: inv.due_date,
+    items: [], // Items not fetched for dashboard summary
+    subtotal: 0, // Not fetched
+    taxAmount: 0, // Not fetched
+    totalAmount: inv.total_amount ?? 0,
+    status: inv.status as InvoiceStatus,
+  }));
+
+  const paidInvoices = invoices.filter(inv => inv.status === InvoiceStatus.PAID);
+  const outstandingInvoices = invoices.filter(inv => inv.status === InvoiceStatus.SENT || inv.status === InvoiceStatus.OVERDUE);
+  const overdueInvoices = invoices.filter(inv => inv.status === InvoiceStatus.OVERDUE);
+  const draftInvoices = invoices.filter(inv => inv.status === InvoiceStatus.DRAFT);
+
+  const totalRevenue = paidInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
+  const totalOutstanding = outstandingInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
+  const totalOverdue = overdueInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
+
 
   return (
     <div className="flex flex-col gap-6">
@@ -27,16 +88,15 @@ export default function DashboardPage() {
         </Button>
       </div>
 
-      {/* Quick Stats Cards - Example */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Revenue (Paid)</CardTitle>
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(invoices.filter(inv => inv.status === 'PAID').reduce((sum, inv) => sum + inv.totalAmount, 0))}</div>
-            <p className="text-xs text-muted-foreground">+20.1% from last month</p>
+            <div className="text-2xl font-bold">{formatCurrency(totalRevenue)}</div>
+            {/* <p className="text-xs text-muted-foreground">+20.1% from last month</p> */}
           </CardContent>
         </Card>
         <Card>
@@ -45,8 +105,8 @@ export default function DashboardPage() {
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(invoices.filter(inv => inv.status === 'SENT' || inv.status === 'OVERDUE').reduce((sum, inv) => sum + inv.totalAmount, 0))}</div>
-            <p className="text-xs text-muted-foreground">Across {invoices.filter(inv => inv.status === 'SENT' || inv.status === 'OVERDUE').length} invoices</p>
+            <div className="text-2xl font-bold">{formatCurrency(totalOutstanding)}</div>
+            <p className="text-xs text-muted-foreground">Across {outstandingInvoices.length} invoices</p>
           </CardContent>
         </Card>
          <Card>
@@ -55,8 +115,8 @@ export default function DashboardPage() {
             <FileText className="h-4 w-4 text-destructive" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-destructive">{formatCurrency(invoices.filter(inv => inv.status === 'OVERDUE').reduce((sum, inv) => sum + inv.totalAmount, 0))}</div>
-            <p className="text-xs text-muted-foreground">{invoices.filter(inv => inv.status === 'OVERDUE').length} invoices overdue</p>
+            <div className="text-2xl font-bold text-destructive">{formatCurrency(totalOverdue)}</div>
+            <p className="text-xs text-muted-foreground">{overdueInvoices.length} invoices overdue</p>
           </CardContent>
         </Card>
          <Card>
@@ -65,19 +125,32 @@ export default function DashboardPage() {
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{invoices.filter(inv => inv.status === 'DRAFT').length}</div>
+            <div className="text-2xl font-bold">{draftInvoices.length}</div>
             <p className="text-xs text-muted-foreground">Invoices in draft</p>
           </CardContent>
         </Card>
       </div>
 
-
       <Card>
         <CardHeader>
           <CardTitle>Recent Invoices</CardTitle>
-          <CardDescription>A list of your recent invoices.</CardDescription>
+          <CardDescription>
+            {invoices.length > 0 ? 'A list of your recent invoices.' : 'No invoices found. Create your first one!'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
+          {invoices.length === 0 ? (
+            <div className="text-center py-10">
+              <FileText className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+              <p className="text-muted-foreground">You haven&apos;t created any invoices yet.</p>
+              <Button asChild className="mt-4">
+                <Link href="/invoices/new">
+                  <PlusCircle className="mr-2 h-5 w-5" />
+                  Create New Invoice
+                </Link>
+              </Button>
+            </div>
+          ) : (
           <Table>
             <TableHeader>
               <TableRow>
@@ -101,7 +174,8 @@ export default function DashboardPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <Button variant="outline" size="sm" asChild>
-                      <Link href="#"> {/* Placeholder for view/edit invoice */}
+                      {/* TODO: Update Link to view/edit invoice page e.g. /invoices/${invoice.id} */}
+                      <Link href={`/invoices/${invoice.id}/view`}> 
                         View
                         <ArrowUpRight className="ml-2 h-4 w-4" />
                       </Link>
@@ -111,10 +185,13 @@ export default function DashboardPage() {
               ))}
             </TableBody>
           </Table>
+          )}
         </CardContent>
-        <CardFooter>
-          <p className="text-xs text-muted-foreground">Showing <strong>{invoices.length}</strong> invoices.</p>
-        </CardFooter>
+        {invoices.length > 0 && (
+          <CardFooter>
+            <p className="text-xs text-muted-foreground">Showing <strong>{invoices.length}</strong> invoices.</p>
+          </CardFooter>
+        )}
       </Card>
     </div>
   );

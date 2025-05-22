@@ -13,7 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { CalendarIcon, Lightbulb, Download, Send } from 'lucide-react';
+import { CalendarIcon, Lightbulb, Download, Send, Save } from 'lucide-react'; // Added Save icon
 import { format } from 'date-fns';
 import { InvoiceItemsTable } from './InvoiceItemsTable';
 import type { Invoice, InvoiceItem as InvoiceItemType } from '@/types/invoice'; // Renamed to avoid conflict
@@ -36,8 +36,8 @@ const invoiceFormSchema = z.object({
   clientName: z.string().min(1, 'Client name is required.'),
   clientEmail: z.string().email('Invalid email address.'),
   clientAddress: z.string().min(1, 'Client address is required.'),
-  invoiceDate: z.date({ required_error: 'Invoice date is required.' }).optional().nullable(), // Allow undefined/null for client-side init
-  dueDate: z.date({ required_error: 'Due date is required.' }).optional().nullable(), // Allow undefined/null for client-side init
+  invoiceDate: z.date({ required_error: 'Invoice date is required.' }),
+  dueDate: z.date({ required_error: 'Due date is required.' }),
   items: z.array(invoiceItemSchema).min(1, 'At least one item is required.'),
   paymentTerms: z.string().optional(),
   notes: z.string().optional(),
@@ -46,21 +46,21 @@ const invoiceFormSchema = z.object({
   industryStandards: z.string().optional(),
   // Calculated fields (not directly editable in main form, but part of schema for calculations)
   subtotal: z.number().default(0),
-  taxAmount: z.number().default(0), // Assuming taxRate is handled to calculate this
+  taxAmount: z.number().default(0), 
   totalAmount: z.number().default(0),
-  // taxRate: z.string().optional().default("0"), // Example tax rate string
 });
 
 export type InvoiceFormValues = z.infer<typeof invoiceFormSchema>;
 
 interface InvoiceFormProps {
-  initialData?: Partial<Invoice>;
+  initialData?: Partial<Invoice>; // This would be a full Invoice type if editing
   onSubmit: (data: InvoiceFormValues) => Promise<void>;
+  isSubmittingForm?: boolean; // Prop to control submit button state from parent
 }
 
-export function InvoiceForm({ initialData, onSubmit }: InvoiceFormProps) {
+export function InvoiceForm({ initialData, onSubmit, isSubmittingForm = false }: InvoiceFormProps) {
   const { toast } = useToast();
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Removed internal isSubmitting, parent will control via isSubmittingForm
   const [isLoadingTerms, setIsLoadingTerms] = useState(false);
   const [suggestedTermsResult, setSuggestedTermsResult] = useState<{ suggestedTerms: string; reasoning: string } | null>(null);
   const [showTermsDialog, setShowTermsDialog] = useState(false);
@@ -72,9 +72,10 @@ export function InvoiceForm({ initialData, onSubmit }: InvoiceFormProps) {
       clientName: initialData?.clientName || '',
       clientEmail: initialData?.clientEmail || '',
       clientAddress: initialData?.clientAddress || '',
+      // Dates will be set by useEffect client-side for new invoices
       invoiceDate: initialData?.invoiceDate ? new Date(initialData.invoiceDate) : undefined,
       dueDate: initialData?.dueDate ? new Date(initialData.dueDate) : undefined,
-      items: initialData?.items?.map(item => ({...item})) || [{ description: '', quantity: 1, unitPrice: 0, total: 0 }],
+      items: initialData?.items?.map(item => ({...item, id: item.id || `item-${Math.random()}`})) || [{ description: '', quantity: 1, unitPrice: 0, total: 0 }],
       paymentTerms: initialData?.paymentTerms || '',
       notes: initialData?.notes || '',
       clientHistory: CLIENT_HISTORY_OPTIONS[0].value,
@@ -86,42 +87,25 @@ export function InvoiceForm({ initialData, onSubmit }: InvoiceFormProps) {
   });
 
   useEffect(() => {
-    // Set default dates only on the client for new invoices to avoid hydration mismatch
-    if (!initialData?.invoiceDate && !form.getValues('invoiceDate')) {
-      form.setValue('invoiceDate', new Date(), { shouldDirty: false, shouldValidate: true });
-    }
-    if (!initialData?.dueDate && !form.getValues('dueDate')) {
-      form.setValue('dueDate', new Date(new Date().setDate(new Date().getDate() + 30)), { shouldDirty: false, shouldValidate: true });
+    if (!initialData?.id) { // Only for new invoices
+      if (!form.getValues('invoiceDate')) {
+        form.setValue('invoiceDate', new Date(), { shouldValidate: true, shouldDirty: true });
+      }
+      if (!form.getValues('dueDate')) {
+        const thirtyDaysFromNow = new Date();
+        thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+        form.setValue('dueDate', thirtyDaysFromNow, { shouldValidate: true, shouldDirty: true });
+      }
     }
   }, [initialData, form.setValue, form.getValues]);
 
 
-  const handleSubmit = async (data: InvoiceFormValues) => {
-    setIsSubmitting(true);
-    try {
-      // Ensure dates are not null before submitting if your backend expects Date objects
-      const submissionData = {
-        ...data,
-        invoiceDate: data.invoiceDate || new Date(), // Fallback if still null, though unlikely if validation passes
-        dueDate: data.dueDate || new Date(new Date().setDate(new Date().getDate() + 30)), // Fallback
-      };
-      await onSubmit(submissionData);
-      toast({
-        title: "Invoice Saved!",
-        description: "Your invoice has been successfully saved.",
-        variant: "default",
-      });
-      // Optionally reset form or redirect
-      // form.reset(); 
-    } catch (error) {
-      toast({
-        title: "Error Saving Invoice",
-        description: "Something went wrong. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
+  const handleSubmitWithUiFeedback = async (data: InvoiceFormValues) => {
+    // Parent component's onSubmit (which is createInvoiceAction via handleCreateInvoice)
+    // will handle its own toast notifications and loading state.
+    // This function no longer needs to set its own submitting state or toasts
+    // as those are handled by the page calling this form.
+    await onSubmit(data);
   };
   
   const handleSuggestTerms = async () => {
@@ -171,7 +155,7 @@ export function InvoiceForm({ initialData, onSubmit }: InvoiceFormProps) {
         </CardDescription>
       </CardHeader>
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(handleSubmit)}>
+        <form onSubmit={form.handleSubmit(handleSubmitWithUiFeedback)}>
           <CardContent className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FormField
@@ -234,7 +218,7 @@ export function InvoiceForm({ initialData, onSubmit }: InvoiceFormProps) {
                         </FormControl>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar mode="single" selected={field.value || undefined} onSelect={field.onChange} initialFocus disabled={(date) => date > new Date() || date < new Date("1900-01-01")} />
+                        <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus disabled={(date) => date > new Date() || date < new Date("1900-01-01")} />
                       </PopoverContent>
                     </Popover>
                     <FormMessage />
@@ -260,7 +244,7 @@ export function InvoiceForm({ initialData, onSubmit }: InvoiceFormProps) {
                         </FormControl>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar mode="single" selected={field.value || undefined} onSelect={field.onChange} initialFocus />
+                        <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
                       </PopoverContent>
                     </Popover>
                     <FormMessage />
@@ -357,11 +341,12 @@ export function InvoiceForm({ initialData, onSubmit }: InvoiceFormProps) {
             />
           </CardContent>
           <CardFooter className="flex justify-end space-x-3 pt-6">
-            <Button type="button" variant="outline">
+            <Button type="button" variant="outline" disabled={isSubmittingForm}>
+              <Save className="mr-2 h-4 w-4" />
               Save as Draft
             </Button>
-            <Button type="submit" disabled={isSubmitting} className="bg-primary hover:bg-primary/90">
-               <Send className="mr-2 h-4 w-4" /> {isSubmitting ? 'Saving...' : (initialData?.id ? 'Update Invoice' : 'Create & Send Invoice')}
+            <Button type="submit" disabled={isSubmittingForm} className="bg-primary hover:bg-primary/90">
+               <Send className="mr-2 h-4 w-4" /> {isSubmittingForm ? 'Saving...' : (initialData?.id ? 'Update Invoice' : 'Create & Send Invoice')}
             </Button>
             <Button type="button" variant="secondary" className="ml-auto" disabled>
                <Download className="mr-2 h-4 w-4" /> Export as PDF
@@ -397,5 +382,3 @@ export function InvoiceForm({ initialData, onSubmit }: InvoiceFormProps) {
     </Card>
   );
 }
-
-    
