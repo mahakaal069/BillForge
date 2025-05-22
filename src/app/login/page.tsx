@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -39,7 +40,7 @@ export default function LoginPage() {
     } else {
       toast({
         title: "Login Successful",
-        description: "Redirecting to dashboard...",
+        description: "Welcome back! Redirecting to your dashboard...",
       });
       router.push('/dashboard');
       router.refresh(); // Important to refresh server components and middleware
@@ -54,8 +55,8 @@ export default function LoginPage() {
           <Link href="/" className="mb-4">
             <AppLogo className="h-12 w-12" />
           </Link>
-          <CardTitle className="text-2xl">Login to BillForge</CardTitle>
-          <CardDescription>Enter your credentials to access your account.</CardDescription>
+          <CardTitle className="text-2xl">Welcome Back!</CardTitle>
+          <CardDescription>Sign in to continue to BillForge.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">

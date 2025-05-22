@@ -70,7 +70,7 @@ export default function SignupPage() {
       setMessage('Signup successful! Please check your email to confirm your account if required, or try logging in.');
       toast({
         title: "Signup Successful!",
-        description: "Please check your email to confirm your account if required. You can now try logging in.",
+        description: "Your account has been created. You can now try logging in.",
       });
       // You might want to redirect to login or a "check your email" page
       // router.push('/login'); 
@@ -92,8 +92,8 @@ export default function SignupPage() {
           <Link href="/" className="mb-4">
             <AppLogo className="h-12 w-12" />
           </Link>
-          <CardTitle className="text-2xl">Create an Account</CardTitle>
-          <CardDescription>Join BillForge to manage your invoices.</CardDescription>
+          <CardTitle className="text-2xl">Create Your Account</CardTitle>
+          <CardDescription>Join BillForge today to streamline your invoicing.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSignup} className="space-y-4">
@@ -140,6 +140,7 @@ export default function SignupPage() {
                 value={role} 
                 onValueChange={(value) => setRole(value as UserRole)}
                 disabled={loading}
+                required
               >
                 <SelectTrigger id="role">
                   <SelectValue placeholder="Select your role" />
