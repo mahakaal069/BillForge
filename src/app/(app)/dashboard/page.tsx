@@ -21,7 +21,6 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
-    // This should ideally be handled by middleware, but as a safeguard:
     redirect('/login');
   }
 
@@ -33,14 +32,14 @@ export default async function DashboardPage() {
       client_name,
       total_amount,
       due_date,
-      status
-    `) // Fetch only necessary fields for the dashboard list
+      status,
+      created_at
+    `) 
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
 
   if (invoicesError) {
     console.error('Error fetching invoices:', invoicesError);
-    // Handle error display appropriately
     return (
         <div className="flex flex-col items-center justify-center h-full">
             <AlertTriangle className="w-12 h-12 text-destructive mb-4" />
@@ -55,15 +54,16 @@ export default async function DashboardPage() {
     id: inv.id,
     invoiceNumber: inv.invoice_number,
     clientName: inv.client_name,
-    clientEmail: '', // Not fetched for dashboard summary
-    clientAddress: '', // Not fetched for dashboard summary
-    invoiceDate: '', // Not fetched for dashboard summary, can be added if needed
+    clientEmail: '', 
+    clientAddress: '', 
+    invoiceDate: '', 
     dueDate: inv.due_date,
-    items: [], // Items not fetched for dashboard summary
-    subtotal: 0, // Not fetched
-    taxAmount: 0, // Not fetched
+    items: [], 
+    subtotal: 0, 
+    taxAmount: 0, 
     totalAmount: inv.total_amount ?? 0,
     status: inv.status as InvoiceStatus,
+    created_at: inv.created_at,
   }));
 
   const paidInvoices = invoices.filter(inv => inv.status === InvoiceStatus.PAID);
@@ -96,7 +96,6 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(totalRevenue)}</div>
-            {/* <p className="text-xs text-muted-foreground">+20.1% from last month</p> */}
           </CardContent>
         </Card>
         <Card>
@@ -168,13 +167,12 @@ export default async function DashboardPage() {
                   <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
                   <TableCell>{invoice.clientName}</TableCell>
                   <TableCell>{formatCurrency(invoice.totalAmount)}</TableCell>
-                  <TableCell>{format(new Date(invoice.dueDate), 'MMM dd, yyyy')}</TableCell>
+                  <TableCell>{invoice.dueDate ? format(new Date(invoice.dueDate), 'MMM dd, yyyy') : 'N/A'}</TableCell>
                   <TableCell>
                     <InvoiceStatusBadge status={invoice.status} />
                   </TableCell>
                   <TableCell className="text-right">
                     <Button variant="outline" size="sm" asChild>
-                      {/* TODO: Update Link to view/edit invoice page e.g. /invoices/${invoice.id} */}
                       <Link href={`/invoices/${invoice.id}/view`}> 
                         View
                         <ArrowUpRight className="ml-2 h-4 w-4" />

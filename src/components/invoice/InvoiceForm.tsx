@@ -13,11 +13,11 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { CalendarIcon, Lightbulb, Download, Send, Save } from 'lucide-react'; // Added Save icon
+import { CalendarIcon, Lightbulb, Download, Send, Save } from 'lucide-react';
 import { format } from 'date-fns';
 import { InvoiceItemsTable } from './InvoiceItemsTable';
-import type { Invoice, InvoiceItem as InvoiceItemType } from '@/types/invoice'; // Renamed to avoid conflict
-import { InvoiceStatus, type ClientHistoryOption } from '@/types/invoice';
+import type { Invoice } from '@/types/invoice';
+import { type ClientHistoryOption, InvoiceStatus } from '@/types/invoice';
 import { CLIENT_HISTORY_OPTIONS, DEFAULT_INDUSTRY_STANDARDS } from '@/lib/constants';
 import React, { useState, useEffect } from 'react';
 import { suggestPaymentTermsAction } from '@/app/(app)/invoices/new/actions';
@@ -26,6 +26,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 
 
 const invoiceItemSchema = z.object({
+  id: z.string().optional(), // Keep id optional as it might not exist for new items
   description: z.string().min(1, 'Description is required.'),
   quantity: z.number().min(0.01, 'Quantity must be positive.'),
   unitPrice: z.number().min(0, 'Unit price must be non-negative.'),
@@ -41,10 +42,8 @@ const invoiceFormSchema = z.object({
   items: z.array(invoiceItemSchema).min(1, 'At least one item is required.'),
   paymentTerms: z.string().optional(),
   notes: z.string().optional(),
-  // Fields for Smart Terms
   clientHistory: z.string().optional(),
   industryStandards: z.string().optional(),
-  // Calculated fields (not directly editable in main form, but part of schema for calculations)
   subtotal: z.number().default(0),
   taxAmount: z.number().default(0), 
   totalAmount: z.number().default(0),
@@ -53,18 +52,24 @@ const invoiceFormSchema = z.object({
 export type InvoiceFormValues = z.infer<typeof invoiceFormSchema>;
 
 interface InvoiceFormProps {
-  initialData?: Partial<Invoice>; // This would be a full Invoice type if editing
-  onSubmit: (data: InvoiceFormValues) => Promise<void>;
-  isSubmittingForm?: boolean; // Prop to control submit button state from parent
+  initialData?: Partial<Invoice>;
+  onSubmitSend: (data: InvoiceFormValues) => Promise<void>;
+  onSubmitDraft: (data: InvoiceFormValues) => Promise<void>;
+  isSubmitting?: boolean;
+  formMode?: 'create' | 'edit' | 'view';
 }
 
-export function InvoiceForm({ initialData, onSubmit, isSubmittingForm = false }: InvoiceFormProps) {
+export function InvoiceForm({ 
+  initialData, 
+  onSubmitSend, 
+  onSubmitDraft, 
+  isSubmitting = false,
+  formMode = 'create' 
+}: InvoiceFormProps) {
   const { toast } = useToast();
-  // Removed internal isSubmitting, parent will control via isSubmittingForm
   const [isLoadingTerms, setIsLoadingTerms] = useState(false);
   const [suggestedTermsResult, setSuggestedTermsResult] = useState<{ suggestedTerms: string; reasoning: string } | null>(null);
   const [showTermsDialog, setShowTermsDialog] = useState(false);
-
 
   const form = useForm<InvoiceFormValues>({
     resolver: zodResolver(invoiceFormSchema),
@@ -72,10 +77,15 @@ export function InvoiceForm({ initialData, onSubmit, isSubmittingForm = false }:
       clientName: initialData?.clientName || '',
       clientEmail: initialData?.clientEmail || '',
       clientAddress: initialData?.clientAddress || '',
-      // Dates will be set by useEffect client-side for new invoices
       invoiceDate: initialData?.invoiceDate ? new Date(initialData.invoiceDate) : undefined,
       dueDate: initialData?.dueDate ? new Date(initialData.dueDate) : undefined,
-      items: initialData?.items?.map(item => ({...item, id: item.id || `item-${Math.random()}`})) || [{ description: '', quantity: 1, unitPrice: 0, total: 0 }],
+      items: initialData?.items?.map(item => ({
+        id: item.id || `temp-${Math.random().toString(36).substring(7)}`, // Ensure items have an id for key prop
+        description: item.description || '',
+        quantity: item.quantity || 1,
+        unitPrice: item.unitPrice || 0,
+        total: item.total || 0,
+      })) || [{ description: '', quantity: 1, unitPrice: 0, total: 0, id: `temp-${Math.random().toString(36).substring(7)}` }],
       paymentTerms: initialData?.paymentTerms || '',
       notes: initialData?.notes || '',
       clientHistory: CLIENT_HISTORY_OPTIONS[0].value,
@@ -87,7 +97,7 @@ export function InvoiceForm({ initialData, onSubmit, isSubmittingForm = false }:
   });
 
   useEffect(() => {
-    if (!initialData?.id) { // Only for new invoices
+    if (formMode === 'create') {
       if (!form.getValues('invoiceDate')) {
         form.setValue('invoiceDate', new Date(), { shouldValidate: true, shouldDirty: true });
       }
@@ -97,16 +107,25 @@ export function InvoiceForm({ initialData, onSubmit, isSubmittingForm = false }:
         form.setValue('dueDate', thirtyDaysFromNow, { shouldValidate: true, shouldDirty: true });
       }
     }
-  }, [initialData, form.setValue, form.getValues]);
-
-
-  const handleSubmitWithUiFeedback = async (data: InvoiceFormValues) => {
-    // Parent component's onSubmit (which is createInvoiceAction via handleCreateInvoice)
-    // will handle its own toast notifications and loading state.
-    // This function no longer needs to set its own submitting state or toasts
-    // as those are handled by the page calling this form.
-    await onSubmit(data);
-  };
+     // If initialData changes (e.g., when an "edit" form loads data), reset the form
+    if (initialData && formMode === 'edit') {
+      form.reset({
+        clientName: initialData.clientName || '',
+        clientEmail: initialData.clientEmail || '',
+        clientAddress: initialData.clientAddress || '',
+        invoiceDate: initialData.invoiceDate ? new Date(initialData.invoiceDate) : new Date(),
+        dueDate: initialData.dueDate ? new Date(initialData.dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        items: initialData.items?.map(item => ({ ...item, id: item.id || `temp-${Math.random().toString(36).substring(7)}` })) || [],
+        paymentTerms: initialData.paymentTerms || '',
+        notes: initialData.notes || '',
+        clientHistory: CLIENT_HISTORY_OPTIONS[0].value, // Or load from DB if saved
+        industryStandards: DEFAULT_INDUSTRY_STANDARDS, // Or load from DB
+        subtotal: initialData.subtotal || 0,
+        taxAmount: initialData.taxAmount || 0,
+        totalAmount: initialData.totalAmount || 0,
+      });
+    }
+  }, [initialData, form.setValue, form.getValues, formMode, form.reset]);
   
   const handleSuggestTerms = async () => {
     setIsLoadingTerms(true);
@@ -114,7 +133,6 @@ export function InvoiceForm({ initialData, onSubmit, isSubmittingForm = false }:
     const invoiceAmount = form.getValues('totalAmount') || 0;
     const clientHistory = form.getValues('clientHistory') || CLIENT_HISTORY_OPTIONS[0].value;
     const industryStandards = form.getValues('industryStandards') || DEFAULT_INDUSTRY_STANDARDS;
-
     const clientHistoryLabel = CLIENT_HISTORY_OPTIONS.find(opt => opt.value === clientHistory)?.label || clientHistory;
 
     try {
@@ -145,17 +163,24 @@ export function InvoiceForm({ initialData, onSubmit, isSubmittingForm = false }:
     setShowTermsDialog(false);
   };
 
+  const isViewMode = formMode === 'view';
 
   return (
     <Card className="w-full">
       <CardHeader>
-        <CardTitle>{initialData?.id ? 'Edit Invoice' : 'Create New Invoice'}</CardTitle>
+        <CardTitle>
+          {formMode === 'edit' ? `Edit Invoice ${initialData?.invoiceNumber || ''}` : 
+           formMode === 'view' ? `View Invoice ${initialData?.invoiceNumber || ''}` : 
+           'Create New Invoice'}
+        </CardTitle>
         <CardDescription>
-          {initialData?.id ? `Editing invoice ${initialData.invoiceNumber}` : 'Fill in the details to create a new invoice.'}
+          {formMode === 'edit' ? 'Update the invoice details below.' :
+           formMode === 'view' ? 'Review the invoice details.' :
+           'Fill in the details to create a new invoice.'}
         </CardDescription>
       </CardHeader>
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(handleSubmitWithUiFeedback)}>
+        {/* No <form> tag here, submission handled by button clicks */}
           <CardContent className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FormField
@@ -165,7 +190,7 @@ export function InvoiceForm({ initialData, onSubmit, isSubmittingForm = false }:
                   <FormItem>
                     <FormLabel>Client Name</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g. Acme Corp" {...field} />
+                      <Input placeholder="e.g. Acme Corp" {...field} disabled={isViewMode} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -178,7 +203,7 @@ export function InvoiceForm({ initialData, onSubmit, isSubmittingForm = false }:
                   <FormItem>
                     <FormLabel>Client Email</FormLabel>
                     <FormControl>
-                      <Input type="email" placeholder="e.g. contact@acme.com" {...field} />
+                      <Input type="email" placeholder="e.g. contact@acme.com" {...field} disabled={isViewMode} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -192,7 +217,7 @@ export function InvoiceForm({ initialData, onSubmit, isSubmittingForm = false }:
                 <FormItem>
                   <FormLabel>Client Address</FormLabel>
                   <FormControl>
-                    <Textarea placeholder="e.g. 123 Main St, Anytown, USA" {...field} />
+                    <Textarea placeholder="e.g. 123 Main St, Anytown, USA" {...field} disabled={isViewMode} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -206,11 +231,12 @@ export function InvoiceForm({ initialData, onSubmit, isSubmittingForm = false }:
                   <FormItem className="flex flex-col">
                     <FormLabel>Invoice Date</FormLabel>
                     <Popover>
-                      <PopoverTrigger asChild>
+                      <PopoverTrigger asChild disabled={isViewMode}>
                         <FormControl>
                           <Button
                             variant="outline"
                             className={cn('w-full pl-3 text-left font-normal', !field.value && 'text-muted-foreground')}
+                            disabled={isViewMode}
                           >
                             {field.value ? format(field.value, 'PPP') : <span>Pick a date</span>}
                             <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
@@ -232,11 +258,12 @@ export function InvoiceForm({ initialData, onSubmit, isSubmittingForm = false }:
                   <FormItem className="flex flex-col">
                     <FormLabel>Due Date</FormLabel>
                     <Popover>
-                      <PopoverTrigger asChild>
+                      <PopoverTrigger asChild disabled={isViewMode}>
                         <FormControl>
                           <Button
                             variant="outline"
                             className={cn('w-full pl-3 text-left font-normal', !field.value && 'text-muted-foreground')}
+                            disabled={isViewMode}
                           >
                             {field.value ? format(field.value, 'PPP') : <span>Pick a date</span>}
                             <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
@@ -257,61 +284,64 @@ export function InvoiceForm({ initialData, onSubmit, isSubmittingForm = false }:
               control={form.control} 
               errors={form.formState.errors} 
               setValue={form.setValue} 
-              getValues={form.getValues} 
+              getValues={form.getValues}
+              disabled={isViewMode}
             />
 
-            <div className="space-y-4 p-4 border rounded-md bg-secondary/50">
-                <h3 className="text-md font-semibold flex items-center">
-                    <Lightbulb className="w-5 h-5 mr-2 text-yellow-500" />
-                    Smart Payment Terms (Optional)
-                </h3>
-                <FormField
-                    control={form.control}
-                    name="clientHistory"
-                    render={({ field }) => (
-                    <FormItem>
-                        <FormLabel>Client Payment History</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                            <SelectTrigger>
-                            <SelectValue placeholder="Select client payment history" />
-                            </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                            {CLIENT_HISTORY_OPTIONS.map((option: ClientHistoryOption) => (
-                            <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                            </SelectItem>
-                            ))}
-                        </SelectContent>
-                        </Select>
-                        <FormDescription>How has this client paid in the past?</FormDescription>
-                        <FormMessage />
-                    </FormItem>
-                    )}
-                />
-                <FormField
-                    control={form.control}
-                    name="industryStandards"
-                    render={({ field }) => (
-                    <FormItem>
-                        <FormLabel>Industry Standards for Payment Terms</FormLabel>
-                        <FormControl>
-                        <Textarea
-                            placeholder="e.g., Net 30 for SaaS, 50% upfront for large projects"
-                            {...field}
-                            rows={3}
-                        />
-                        </FormControl>
-                        <FormDescription>What are typical payment terms in this industry?</FormDescription>
-                        <FormMessage />
-                    </FormItem>
-                    )}
-                />
-                 <Button type="button" variant="outline" onClick={handleSuggestTerms} disabled={isLoadingTerms} className="bg-accent text-accent-foreground hover:bg-accent/90">
-                    {isLoadingTerms ? "Suggesting..." : "Suggest Optimal Terms with AI"}
-                </Button>
-            </div>
+            {!isViewMode && (
+              <div className="space-y-4 p-4 border rounded-md bg-secondary/50">
+                  <h3 className="text-md font-semibold flex items-center">
+                      <Lightbulb className="w-5 h-5 mr-2 text-yellow-500" />
+                      Smart Payment Terms (Optional)
+                  </h3>
+                  <FormField
+                      control={form.control}
+                      name="clientHistory"
+                      render={({ field }) => (
+                      <FormItem>
+                          <FormLabel>Client Payment History</FormLabel>
+                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                              <SelectTrigger>
+                              <SelectValue placeholder="Select client payment history" />
+                              </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                              {CLIENT_HISTORY_OPTIONS.map((option: ClientHistoryOption) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                              </SelectItem>
+                              ))}
+                          </SelectContent>
+                          </Select>
+                          <FormDescription>How has this client paid in the past?</FormDescription>
+                          <FormMessage />
+                      </FormItem>
+                      )}
+                  />
+                  <FormField
+                      control={form.control}
+                      name="industryStandards"
+                      render={({ field }) => (
+                      <FormItem>
+                          <FormLabel>Industry Standards for Payment Terms</FormLabel>
+                          <FormControl>
+                          <Textarea
+                              placeholder="e.g., Net 30 for SaaS, 50% upfront for large projects"
+                              {...field}
+                              rows={3}
+                          />
+                          </FormControl>
+                          <FormDescription>What are typical payment terms in this industry?</FormDescription>
+                          <FormMessage />
+                      </FormItem>
+                      )}
+                  />
+                   <Button type="button" variant="outline" onClick={handleSuggestTerms} disabled={isLoadingTerms} className="bg-accent text-accent-foreground hover:bg-accent/90">
+                      {isLoadingTerms ? "Suggesting..." : "Suggest Optimal Terms with AI"}
+                  </Button>
+              </div>
+            )}
             
             <FormField
               control={form.control}
@@ -320,7 +350,7 @@ export function InvoiceForm({ initialData, onSubmit, isSubmittingForm = false }:
                 <FormItem>
                   <FormLabel>Payment Terms</FormLabel>
                   <FormControl>
-                    <Textarea placeholder="e.g. Net 30 Days, Due on Receipt" {...field} />
+                    <Textarea placeholder="e.g. Net 30 Days, Due on Receipt" {...field} disabled={isViewMode} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -333,7 +363,7 @@ export function InvoiceForm({ initialData, onSubmit, isSubmittingForm = false }:
                 <FormItem>
                   <FormLabel>Notes / Additional Information</FormLabel>
                   <FormControl>
-                    <Textarea placeholder="Any additional notes for the client." {...field} />
+                    <Textarea placeholder="Any additional notes for the client." {...field} disabled={isViewMode} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -341,18 +371,33 @@ export function InvoiceForm({ initialData, onSubmit, isSubmittingForm = false }:
             />
           </CardContent>
           <CardFooter className="flex justify-end space-x-3 pt-6">
-            <Button type="button" variant="outline" disabled={isSubmittingForm}>
-              <Save className="mr-2 h-4 w-4" />
-              Save as Draft
-            </Button>
-            <Button type="submit" disabled={isSubmittingForm} className="bg-primary hover:bg-primary/90">
-               <Send className="mr-2 h-4 w-4" /> {isSubmittingForm ? 'Saving...' : (initialData?.id ? 'Update Invoice' : 'Create & Send Invoice')}
-            </Button>
+            {formMode !== 'view' && (
+              <>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={form.handleSubmit(onSubmitDraft)} 
+                  disabled={isSubmitting}
+                >
+                  <Save className="mr-2 h-4 w-4" />
+                  {formMode === 'edit' ? 'Save Draft Changes' : 'Save as Draft'}
+                </Button>
+                <Button 
+                  type="button" 
+                  onClick={form.handleSubmit(onSubmitSend)} 
+                  disabled={isSubmitting} 
+                  className="bg-primary hover:bg-primary/90"
+                >
+                  <Send className="mr-2 h-4 w-4" /> 
+                  {isSubmitting ? 'Saving...' : (formMode === 'edit' ? 'Update & Send Invoice' : 'Create & Send Invoice')}
+                </Button>
+              </>
+            )}
+            {/* "Export as PDF" button can be enabled later */}
             <Button type="button" variant="secondary" className="ml-auto" disabled>
                <Download className="mr-2 h-4 w-4" /> Export as PDF
             </Button>
           </CardFooter>
-        </form>
       </Form>
 
       {suggestedTermsResult && (
@@ -363,12 +408,12 @@ export function InvoiceForm({ initialData, onSubmit, isSubmittingForm = false }:
                 <Lightbulb className="w-5 h-5 mr-2 text-yellow-500" />
                 AI Suggested Payment Terms
               </AlertDialogTitle>
-              <AlertDialogDescription className="text-left whitespace-pre-wrap">
-                <div className="font-semibold mt-2">Suggested Terms:</div>
-                <div className="p-2 bg-muted rounded-md my-1">{suggestedTermsResult.suggestedTerms}</div>
-                <div className="font-semibold mt-2">Reasoning:</div>
-                <div className="p-2 bg-muted rounded-md my-1 text-sm">{suggestedTermsResult.reasoning}</div>
-              </AlertDialogDescription>
+                <AlertDialogDescription className="text-left whitespace-pre-wrap">
+                    <div className="font-semibold mt-2">Suggested Terms:</div>
+                    <div className="p-2 bg-muted rounded-md my-1">{suggestedTermsResult.suggestedTerms}</div>
+                    <div className="font-semibold mt-2">Reasoning:</div>
+                    <div className="p-2 bg-muted rounded-md my-1 text-sm">{suggestedTermsResult.reasoning}</div>
+                </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
