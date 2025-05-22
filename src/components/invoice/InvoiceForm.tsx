@@ -1,3 +1,4 @@
+
 "use client";
 
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -264,7 +265,12 @@ export function InvoiceForm({ initialData, onSubmit }: InvoiceFormProps) {
               />
             </div>
 
-            <InvoiceItemsTable control={form.control} errors={form.formState.errors} setValue={form.setValue} />
+            <InvoiceItemsTable 
+              control={form.control} 
+              errors={form.formState.errors} 
+              setValue={form.setValue} 
+              getValues={form.getValues} 
+            />
 
             <div className="space-y-4 p-4 border rounded-md bg-secondary/50">
                 <h3 className="text-md font-semibold flex items-center">

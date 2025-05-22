@@ -1,6 +1,7 @@
+
 "use client";
 
-import type { Control, FieldErrors } from 'react-hook-form';
+import type { Control, FieldErrors, UseFormGetValues } from 'react-hook-form';
 import { useFieldArray } from 'react-hook-form';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +15,7 @@ interface InvoiceItemsTableProps {
   control: Control<InvoiceFormValues>;
   errors: FieldErrors<InvoiceFormValues>;
   setValue: (name: any, value: any, config?: Object) => void;
+  getValues: UseFormGetValues<InvoiceFormValues>;
 }
 
 function formatCurrency(amount: number | undefined) {
@@ -21,15 +23,15 @@ function formatCurrency(amount: number | undefined) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
 }
 
-export function InvoiceItemsTable({ control, errors, setValue }: InvoiceItemsTableProps) {
+export function InvoiceItemsTable({ control, errors, setValue, getValues }: InvoiceItemsTableProps) {
   const { fields, append, remove } = useFieldArray({
     control,
     name: 'items',
   });
 
   const handleItemChange = (index: number, field: 'quantity' | 'unitPrice', value: string) => {
-    const quantity = field === 'quantity' ? parseFloat(value) : parseFloat(control.getValues(`items.${index}.quantity` as any) || '0');
-    const unitPrice = field === 'unitPrice' ? parseFloat(value) : parseFloat(control.getValues(`items.${index}.unitPrice` as any) || '0');
+    const quantity = field === 'quantity' ? parseFloat(value) : parseFloat(getValues(`items.${index}.quantity` as any) || '0');
+    const unitPrice = field === 'unitPrice' ? parseFloat(value) : parseFloat(getValues(`items.${index}.unitPrice` as any) || '0');
     
     if (!isNaN(quantity) && !isNaN(unitPrice)) {
       setValue(`items.${index}.total` as any, quantity * unitPrice, { shouldValidate: true });
@@ -38,9 +40,9 @@ export function InvoiceItemsTable({ control, errors, setValue }: InvoiceItemsTab
     }
 
     // Update overall totals
-    const items = control.getValues('items');
+    const items = getValues('items');
     const subtotal = items.reduce((sum, item) => sum + (item.total || 0), 0);
-    // const taxRate = parseFloat(control.getValues('taxRate') || '0') / 100; // Assuming taxRate is a percentage string
+    // const taxRate = parseFloat(getValues('taxRate') || '0') / 100; // Assuming taxRate is a percentage string
     // const taxAmount = subtotal * taxRate;
     const taxAmount = 0; // Simplified: no tax for now
     const totalAmount = subtotal + taxAmount;
@@ -100,7 +102,7 @@ export function InvoiceItemsTable({ control, errors, setValue }: InvoiceItemsTab
                 />
               </TableCell>
               <TableCell>
-                {formatCurrency(control.getValues(`items.${index}.total` as any))}
+                {formatCurrency(getValues(`items.${index}.total` as any))}
               </TableCell>
               <TableCell className="text-right">
                 <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)} aria-label="Remove item">
@@ -119,7 +121,7 @@ export function InvoiceItemsTable({ control, errors, setValue }: InvoiceItemsTab
         <div className="w-full max-w-xs space-y-2">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Subtotal:</span>
-            <span>{formatCurrency(control.getValues('subtotal'))}</span>
+            <span>{formatCurrency(getValues('subtotal'))}</span>
           </div>
           {/* <div className="flex justify-between items-center">
             <span className="text-muted-foreground">Tax (%):</span>
@@ -129,7 +131,7 @@ export function InvoiceItemsTable({ control, errors, setValue }: InvoiceItemsTab
               className="w-20 h-8" 
               placeholder="0"
               onChange={(e) => {
-                 const items = control.getValues('items');
+                 const items = getValues('items');
                  const subtotal = items.reduce((sum, item) => sum + (item.total || 0), 0);
                  const taxRate = parseFloat(e.target.value || '0') / 100;
                  const taxAmount = subtotal * taxRate;
@@ -141,11 +143,11 @@ export function InvoiceItemsTable({ control, errors, setValue }: InvoiceItemsTab
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Tax Amount:</span>
-            <span>{formatCurrency(control.getValues('taxAmount'))}</span>
+            <span>{formatCurrency(getValues('taxAmount'))}</span>
           </div> */}
           <div className="flex justify-between border-t pt-2">
             <span className="font-semibold text-lg">Total Amount:</span>
-            <span className="font-semibold text-lg">{formatCurrency(control.getValues('totalAmount'))}</span>
+            <span className="font-semibold text-lg">{formatCurrency(getValues('totalAmount'))}</span>
           </div>
         </div>
       </div>
