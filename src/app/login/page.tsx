@@ -8,9 +8,9 @@ import { supabase } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { AppLogo } from '@/components/AppLogo';
 import { useToast } from "@/hooks/use-toast";
+import { LogIn } from 'lucide-react'; // Using Lucide for consistency
 
 export default function LoginPage() {
   const router = useRouter();
@@ -43,23 +43,46 @@ export default function LoginPage() {
         description: "Welcome back! Redirecting to your dashboard...",
       });
       router.push('/dashboard');
-      router.refresh(); // Important to refresh server components and middleware
+      router.refresh(); 
     }
     setLoading(false);
   };
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="items-center">
-          <Link href="/" className="mb-4">
-            <AppLogo className="h-12 w-12" />
+      <div className="w-full max-w-4xl rounded-xl shadow-2xl bg-card text-card-foreground md:flex">
+        {/* Branding Column */}
+        <div className="hidden md:flex md:w-1/2 flex-col items-center justify-center bg-muted p-12 text-center rounded-l-xl">
+          <Link href="/" className="mb-6">
+            <AppLogo className="h-16 w-16 text-primary" />
           </Link>
-          <CardTitle className="text-2xl">Welcome Back!</CardTitle>
-          <CardDescription>Sign in to continue to BillForge.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleLogin} className="space-y-4">
+          <h1 className="text-3xl font-bold text-primary mb-3">BillForge</h1>
+          <p className="text-muted-foreground mb-8">
+            Modern invoicing, simplified for you. Access your account to manage your invoices seamlessly.
+          </p>
+          <LogIn className="w-24 h-24 text-primary/70" />
+        </div>
+
+        {/* Form Column */}
+        <div className="w-full md:w-1/2 p-8 sm:p-12">
+          {/* Mobile Header (Logo only) */}
+          <div className="md:hidden text-center mb-8">
+            <Link href="/" className="inline-block">
+              <AppLogo className="h-12 w-12 mx-auto text-primary" />
+            </Link>
+             <h2 className="text-2xl font-semibold mt-4">Welcome Back!</h2>
+          </div>
+           <div className="md:hidden text-center mb-6">
+             <p className="text-sm text-muted-foreground">Sign in to continue to BillForge.</p>
+           </div>
+
+          {/* Desktop Header (Text only) */}
+          <div className="hidden md:block text-center mb-8">
+            <h2 className="text-3xl font-bold text-foreground">Welcome Back!</h2>
+            <p className="text-muted-foreground mt-2">Sign in to continue to BillForge.</p>
+          </div>
+          
+          <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -70,6 +93,7 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 disabled={loading}
+                className="h-12"
               />
             </div>
             <div className="space-y-2">
@@ -81,26 +105,27 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 disabled={loading}
+                className="h-12"
               />
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full h-12 text-base" disabled={loading}>
               {loading ? 'Logging in...' : 'Login'}
             </Button>
           </form>
-        </CardContent>
-        <CardFooter className="flex-col gap-2 text-sm">
-          <p>
-            Don&apos;t have an account?{' '}
-            <Button variant="link" asChild className="p-0 h-auto">
-                <Link href="/signup">Sign up</Link>
-            </Button>
-          </p>
-          {/* <Button variant="link" asChild className="p-0 h-auto">
-             <Link href="/forgot-password">Forgot password?</Link>
-          </Button> */}
-        </CardFooter>
-      </Card>
+          <div className="mt-6 text-center text-sm">
+            <p>
+              Don&apos;t have an account?{' '}
+              <Button variant="link" asChild className="p-0 h-auto font-semibold">
+                  <Link href="/signup">Sign up</Link>
+              </Button>
+            </p>
+            {/* <Button variant="link" asChild className="p-0 h-auto text-xs">
+               <Link href="/forgot-password">Forgot password?</Link>
+            </Button> */}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

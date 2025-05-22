@@ -8,11 +8,11 @@ import { supabase } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AppLogo } from '@/components/AppLogo';
 import { useToast } from "@/hooks/use-toast";
 import { UserRole } from '@/types/user';
+import { UserPlus } from 'lucide-react'; // Using Lucide for consistency
 
 export default function SignupPage() {
   const router = useRouter();
@@ -46,9 +46,8 @@ export default function SignupPage() {
       options: {
         data: {
           full_name: fullName,
-          role: role, // Pass the selected role here
+          role: role,
         },
-        // emailRedirectTo: `${window.location.origin}/auth/callback`, // Optional: if you have email confirmation enabled
       },
     });
 
@@ -60,7 +59,6 @@ export default function SignupPage() {
         variant: "destructive",
       });
     } else if (data.user && data.user.identities && data.user.identities.length === 0) {
-      // This case might indicate email confirmation is pending if enabled and user already exists but unconfirmed
       setMessage("User may already exist or confirmation is pending. Please check your email or try logging in.");
       toast({
         title: "Confirmation May Be Required",
@@ -72,8 +70,6 @@ export default function SignupPage() {
         title: "Signup Successful!",
         description: "Your account has been created. You can now try logging in.",
       });
-      // You might want to redirect to login or a "check your email" page
-      // router.push('/login'); 
     } else {
        setError("An unexpected error occurred during signup.");
        toast({
@@ -87,17 +83,40 @@ export default function SignupPage() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="items-center">
-          <Link href="/" className="mb-4">
-            <AppLogo className="h-12 w-12" />
+      <div className="w-full max-w-4xl rounded-xl shadow-2xl bg-card text-card-foreground md:flex">
+        {/* Branding Column */}
+        <div className="hidden md:flex md:w-1/2 flex-col items-center justify-center bg-muted p-12 text-center rounded-l-xl">
+          <Link href="/" className="mb-6">
+            <AppLogo className="h-16 w-16 text-primary" />
           </Link>
-          <CardTitle className="text-2xl">Create Your Account</CardTitle>
-          <CardDescription>Join BillForge today to streamline your invoicing.</CardDescription>
-        </CardHeader>
-        <CardContent>
+          <h1 className="text-3xl font-bold text-primary mb-3">Join BillForge</h1>
+          <p className="text-muted-foreground mb-8">
+            Create your account to start managing invoices efficiently. Choose your role and get started!
+          </p>
+          <UserPlus className="w-24 h-24 text-primary/70" />
+        </div>
+
+        {/* Form Column */}
+        <div className="w-full md:w-1/2 p-8 sm:p-12">
+          {/* Mobile Header (Logo only) */}
+           <div className="md:hidden text-center mb-8">
+            <Link href="/" className="inline-block">
+              <AppLogo className="h-12 w-12 mx-auto text-primary" />
+            </Link>
+             <h2 className="text-2xl font-semibold mt-4">Create Your Account</h2>
+          </div>
+           <div className="md:hidden text-center mb-6">
+             <p className="text-sm text-muted-foreground">Join BillForge today to streamline your invoicing.</p>
+           </div>
+
+           {/* Desktop Header (Text only) */}
+          <div className="hidden md:block text-center mb-8">
+            <h2 className="text-3xl font-bold text-foreground">Create Your Account</h2>
+            <p className="text-muted-foreground mt-2">Join BillForge today to streamline your invoicing.</p>
+          </div>
+
           <form onSubmit={handleSignup} className="space-y-4">
-            <div className="space-y-2">
+            <div className="space-y-1">
               <Label htmlFor="fullName">Full Name</Label>
               <Input
                 id="fullName"
@@ -107,9 +126,10 @@ export default function SignupPage() {
                 onChange={(e) => setFullName(e.target.value)}
                 required
                 disabled={loading}
+                className="h-11"
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-1">
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
@@ -119,9 +139,10 @@ export default function SignupPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 disabled={loading}
+                className="h-11"
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-1">
               <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
@@ -131,10 +152,11 @@ export default function SignupPage() {
                 minLength={6}
                 required
                 disabled={loading}
+                className="h-11"
               />
                <p className="text-xs text-muted-foreground">Password should be at least 6 characters.</p>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-1">
               <Label htmlFor="role">I am a...</Label>
               <Select 
                 value={role} 
@@ -142,7 +164,7 @@ export default function SignupPage() {
                 disabled={loading}
                 required
               >
-                <SelectTrigger id="role">
+                <SelectTrigger id="role" className="h-11">
                   <SelectValue placeholder="Select your role" />
                 </SelectTrigger>
                 <SelectContent>
@@ -153,20 +175,20 @@ export default function SignupPage() {
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             {message && <p className="text-sm text-green-600">{message}</p>}
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full h-11 text-base" disabled={loading}>
               {loading ? 'Signing up...' : 'Sign Up'}
             </Button>
           </form>
-        </CardContent>
-        <CardFooter className="flex-col gap-2 text-sm">
-          <p>
-            Already have an account?{' '}
-            <Button variant="link" asChild className="p-0 h-auto">
-                <Link href="/login">Login</Link>
-            </Button>
-          </p>
-        </CardFooter>
-      </Card>
+          <div className="mt-6 text-center text-sm">
+            <p>
+              Already have an account?{' '}
+              <Button variant="link" asChild className="p-0 h-auto font-semibold">
+                  <Link href="/login">Login</Link>
+              </Button>
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
