@@ -77,8 +77,8 @@ export function InvoiceForm({
       clientName: '',
       clientEmail: '',
       clientAddress: '',
-      invoiceDate: undefined, // Will be set by useEffect or initialData
-      dueDate: undefined, // Will be set by useEffect or initialData
+      invoiceDate: undefined, 
+      dueDate: undefined, 
       items: [{ description: '', quantity: 1, unitPrice: 0, total: 0, id: `temp-${Math.random().toString(36).substring(7)}` }],
       paymentTerms: '',
       notes: '',
@@ -107,7 +107,6 @@ export function InvoiceForm({
         })) || [{ description: '', quantity: 1, unitPrice: 0, total: 0, id: `temp-${Math.random().toString(36).substring(7)}` }],
         paymentTerms: initialData.paymentTerms || '',
         notes: initialData.notes || '',
-        // These fields are for AI suggestions and not part of the core Invoice data model for initialData
         clientHistory: form.getValues('clientHistory') || CLIENT_HISTORY_OPTIONS[0].value,
         industryStandards: form.getValues('industryStandards') || DEFAULT_INDUSTRY_STANDARDS,
         subtotal: Number(initialData.subtotal) || 0,
@@ -115,7 +114,6 @@ export function InvoiceForm({
         totalAmount: Number(initialData.totalAmount) || 0,
       });
     } else if (formMode === 'create') {
-      // Ensure default dates and at least one item for 'create' mode if not already set by defaultValues or user interaction
       if (!form.getValues('invoiceDate')) {
         form.setValue('invoiceDate', new Date(), { shouldValidate: true, shouldDirty: true });
       }
@@ -128,8 +126,7 @@ export function InvoiceForm({
          form.setValue('items', [{ description: '', quantity: 1, unitPrice: 0, total: 0, id: `temp-${Math.random().toString(36).substring(7)}` }]);
       }
     }
-  }, [initialData, formMode, form]); // form instance is stable, methods like reset, setValue, getValues are stable.
-                                     // This effect runs when initialData or formMode changes.
+  }, [initialData, formMode, form]);
   
   const handleSuggestTerms = async () => {
     setIsLoadingTerms(true);
@@ -414,10 +411,10 @@ export function InvoiceForm({
                 AI Suggested Payment Terms
               </AlertDialogTitle>
                 <AlertDialogDescription className="text-left whitespace-pre-wrap">
-                    <div className="font-semibold mt-2">Suggested Terms:</div>
-                    <div className="p-2 bg-muted rounded-md my-1">{suggestedTermsResult.suggestedTerms}</div>
-                    <div className="font-semibold mt-2">Reasoning:</div>
-                    <div className="p-2 bg-muted rounded-md my-1 text-sm">{suggestedTermsResult.reasoning}</div>
+                    <span className="font-semibold block mt-2">Suggested Terms:</span>
+                    <span className="block p-2 bg-muted rounded-md my-1">{suggestedTermsResult.suggestedTerms}</span>
+                    <span className="font-semibold block mt-2">Reasoning:</span>
+                    <span className="block p-2 bg-muted rounded-md my-1 text-sm">{suggestedTermsResult.reasoning}</span>
                 </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -432,3 +429,4 @@ export function InvoiceForm({
     </Card>
   );
 }
+
