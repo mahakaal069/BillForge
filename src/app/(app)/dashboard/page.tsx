@@ -13,6 +13,7 @@ import { redirect } from 'next/navigation';
 import { DeleteInvoiceDialog } from '@/components/invoice/DeleteInvoiceDialog';
 import { Badge } from '@/components/ui/badge';
 import type { Profile } from '@/types/user';
+import { cn } from '@/lib/utils';
 
 function formatCurrency(amount: number | null | undefined) {
   if (amount === null || amount === undefined) return '$0.00';
@@ -46,8 +47,22 @@ export default async function DashboardPage() {
     .eq('id', user.id)
     .single();
 
+  // Detailed server-side logging
+  if (profileError) {
+    console.error('Supabase error fetching profile on dashboard:', profileError);
+  } else if (!profileData) {
+    console.warn(`Profile record not found in DB for user ID: ${user.id} on dashboard. Signup trigger might have failed or RLS is blocking.`);
+  }
+
   if (profileError || !profileData) {
-    console.error('Error fetching profile:', profileError);
+    // Log more specific details for the case leading to the error UI
+    if (profileError && (profileError as any).message) {
+      console.error('Dashboard: Error fetching profile - Supabase message:', (profileError as any).message, 'Full error object:', profileError);
+    } else if (!profileData) {
+      console.error(`Dashboard: Error fetching profile - No profile data found for user ID: ${user.id}. Raw profileError:`, profileError);
+    } else { // profileError is truthy (e.g. {}) but has no message, and profileData might or might not exist
+      console.error('Dashboard: Error fetching profile - An unspecified issue occurred. Raw profileError:', profileError, 'ProfileData exists:', !!profileData);
+    }
     return (
         <div className="flex flex-col items-center justify-center h-full">
             <AlertTriangle className="w-12 h-12 text-destructive mb-4" />
@@ -311,4 +326,3 @@ export default async function DashboardPage() {
     </div>
   );
 }
-
