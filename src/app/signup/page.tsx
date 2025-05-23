@@ -40,6 +40,8 @@ export default function SignupPage() {
     setError(null);
     setMessage(null);
 
+    console.log('Attempting signup with user data:', { fullName, role, email }); // Added for debugging
+
     const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
@@ -65,11 +67,13 @@ export default function SignupPage() {
         description: "User may already exist or confirmation is pending. Please check your email or try logging in.",
       });
     } else if (data.user) {
-      setMessage('Signup successful! Please check your email to confirm your account if required, or try logging in.');
+      setMessage('Signup successful! Please check your email to confirm your account if required, or try logging in. Profile data should be available after login if the backend trigger succeeded.');
       toast({
         title: "Signup Successful!",
         description: "Your account has been created. You can now try logging in.",
       });
+      // You could potentially redirect to login here or to a "check your email" page
+      // router.push('/login');
     } else {
        setError("An unexpected error occurred during signup.");
        toast({
@@ -158,13 +162,12 @@ export default function SignupPage() {
             </div>
             <div className="space-y-1">
               <Label htmlFor="role">I am a...</Label>
-              <Select 
-                value={role} 
+              <Select
+                value={role}
                 onValueChange={(value) => setRole(value as UserRole)}
                 disabled={loading}
-                required
               >
-                <SelectTrigger id="role" className="h-11">
+                <SelectTrigger id="role" className="h-11" aria-required="true">
                   <SelectValue placeholder="Select your role" />
                 </SelectTrigger>
                 <SelectContent>
