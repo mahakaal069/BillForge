@@ -7,12 +7,13 @@ import type { Invoice } from '@/types/invoice';
 import { InvoiceStatus, FactoringStatus } from '@/types/invoice';
 import { InvoiceStatusBadge } from '@/components/InvoiceStatusBadge';
 import { format } from 'date-fns';
-import { ArrowUpRight, PlusCircle, FileText, AlertTriangle, Edit, TrendingUp, CheckCircle, XCircle } from 'lucide-react';
+import { ArrowUpRight, PlusCircle, FileText, AlertTriangle, Edit, TrendingUp, CheckCircle, XCircle, Landmark } from 'lucide-react';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { DeleteInvoiceDialog } from '@/components/invoice/DeleteInvoiceDialog';
 import { Badge } from '@/components/ui/badge';
 import type { Profile } from '@/types/user';
+import { UserRole } from '@/types/user';
 import { cn } from '@/lib/utils';
 
 function formatCurrency(amount: number | null | undefined) {
@@ -47,20 +48,12 @@ export default async function DashboardPage() {
     .eq('id', user.id)
     .single();
 
-  // Detailed server-side logging
-  if (profileError) {
-    console.error('Supabase error fetching profile on dashboard:', profileError);
-  } else if (!profileData) {
-    console.warn(`Profile record not found in DB for user ID: ${user.id} on dashboard. Signup trigger might have failed or RLS is blocking.`);
-  }
-
   if (profileError || !profileData) {
-    // Log more specific details for the case leading to the error UI
     if (profileError && (profileError as any).message) {
       console.error('Dashboard: Error fetching profile - Supabase message:', (profileError as any).message, 'Full error object:', profileError);
     } else if (!profileData) {
       console.error(`Dashboard: Error fetching profile - No profile data found for user ID: ${user.id}. Raw profileError:`, profileError);
-    } else { // profileError is truthy (e.g. {}) but has no message, and profileData might or might not exist
+    } else { 
       console.error('Dashboard: Error fetching profile - An unspecified issue occurred. Raw profileError:', profileError, 'ProfileData exists:', !!profileData);
     }
     return (
@@ -75,7 +68,7 @@ export default async function DashboardPage() {
 
 
   let invoicesQuery;
-  if (profile.role === 'MSME') {
+  if (profile.role === UserRole.MSME) {
     invoicesQuery = supabase
       .from('invoices')
       .select(`
@@ -91,7 +84,7 @@ export default async function DashboardPage() {
       `)
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
-  } else if (profile.role === 'BUYER' && user.email) {
+  } else if (profile.role === UserRole.BUYER && user.email) {
     invoicesQuery = supabase
       .from('invoices')
       .select(`
@@ -108,10 +101,25 @@ export default async function DashboardPage() {
       `)
       .eq('client_email', user.email)
       .order('created_at', { ascending: false });
+  } else if (profile.role === UserRole.FINANCIER) {
+    invoicesQuery = supabase
+      .from('invoices')
+      .select(`
+        id,
+        invoice_number,
+        client_name, 
+        total_amount,
+        due_date,
+        status,
+        factoring_status,
+        created_at,
+        msme:profiles!user_id(full_name) 
+      `)
+      .eq('factoring_status', FactoringStatus.BUYER_ACCEPTED)
+      .order('created_at', { ascending: false });
   } else {
-    // No role or buyer without email, show empty or error
-    console.warn(`Dashboard: User ${user.id} has role '${profile.role}' and email '${user.email}', which doesn't match MSME or BUYER with email for invoice fetching. Returning empty set.`);
-    invoicesQuery = supabase.from('invoices').select('*').limit(0); // Empty query
+    console.warn(`Dashboard: User ${user.id} has role '${profile.role}' and email '${user.email}', which doesn't match MSME, BUYER with email, or FINANCIER for invoice fetching. Returning empty set.`);
+    invoicesQuery = supabase.from('invoices').select('*').limit(0); 
   }
 
 
@@ -119,9 +127,8 @@ export default async function DashboardPage() {
 
 
   if (invoicesError) {
-    // Enhanced logging for invoicesError
     const errorMessage = (invoicesError as any).message || 'No specific error message. Error object might be empty or not an instance of Error.';
-    const userContext = `User ID: ${user.id}, Role: ${profile.role}, Email for query (if buyer): ${profile.role === 'BUYER' ? user.email : 'N/A'}.`;
+    const userContext = `User ID: ${user.id}, Role: ${profile.role}, Email for query (if buyer): ${profile.role === UserRole.BUYER ? user.email : 'N/A'}.`;
     console.error(`Error fetching invoices: ${errorMessage}. ${userContext}. Raw error object:`, invoicesError);
     
     return (
@@ -137,9 +144,9 @@ export default async function DashboardPage() {
   const invoices: Invoice[] = (invoicesData || []).map((inv: any) => ({
     id: inv.id,
     invoiceNumber: inv.invoice_number,
-    clientName: inv.client_name, // For buyer, this is their name. For MSME, this is their client.
-    sellerName: profile.role === 'BUYER' && inv.msme ? inv.msme.full_name : undefined, // Seller name for buyer dashboard
-    clientEmail: '', // Not strictly needed for dashboard display logic here
+    clientName: inv.client_name, 
+    sellerName: (profile.role === UserRole.BUYER || profile.role === UserRole.FINANCIER) && inv.msme ? inv.msme.full_name : undefined,
+    clientEmail: '', 
     clientAddress: '',
     invoiceDate: '',
     dueDate: inv.due_date,
@@ -153,7 +160,9 @@ export default async function DashboardPage() {
     created_at: inv.created_at,
   }));
 
-  const isMSME = profile.role === 'MSME';
+  const isMSME = profile.role === UserRole.MSME;
+  const isBuyer = profile.role === UserRole.BUYER;
+  const isFinancier = profile.role === UserRole.FINANCIER;
 
   const paidInvoices = invoices.filter(inv => inv.status === InvoiceStatus.PAID);
   const outstandingInvoices = invoices.filter(inv => inv.status === InvoiceStatus.SENT || inv.status === InvoiceStatus.OVERDUE);
@@ -222,21 +231,33 @@ export default async function DashboardPage() {
         </Card>
       </div>
     )}
-    {profile.role === 'BUYER' && (
+    {isBuyer && (
         <Card>
             <CardHeader>
                 <CardTitle>Invoices Sent To You</CardTitle>
                 <CardDescription>These are invoices where you are listed as the client.</CardDescription>
             </CardHeader>
-            {/* Buyer-specific summary cards could go here later */}
+        </Card>
+    )}
+    {isFinancier && (
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center">
+                    <Landmark className="mr-2 h-5 w-5 text-primary"/>
+                    Invoices Ready for Factoring
+                </CardTitle>
+                <CardDescription>These invoices have been accepted by buyers for factoring and are awaiting financier bids.</CardDescription>
+            </CardHeader>
         </Card>
     )}
 
       <Card>
         <CardHeader>
-          <CardTitle>{isMSME ? 'Recent Invoices' : 'Your Invoices'}</CardTitle>
+          <CardTitle>
+            {isMSME ? 'Recent Invoices' : isBuyer ? 'Your Invoices' : 'Factoring Opportunities'}
+          </CardTitle>
           <CardDescription>
-            {invoices.length > 0 ? `A list of your ${isMSME ? 'recent' : ''} invoices.` : 'No invoices found.'}
+            {invoices.length > 0 ? `A list of ${isMSME ? 'your recent' : isBuyer ? 'your' : 'available'} invoices.` : 'No invoices found.'}
             {invoices.length === 0 && isMSME && ' Create your first one!'}
           </CardDescription>
         </CardHeader>
@@ -244,7 +265,11 @@ export default async function DashboardPage() {
           {invoices.length === 0 ? (
             <div className="text-center py-10">
               <FileText className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">You haven&apos;t {isMSME ? 'created any' : 'received any'} invoices yet.</p>
+              <p className="text-muted-foreground">
+                {isMSME ? "You haven't created any invoices yet." :
+                 isBuyer ? "You haven't received any invoices yet." :
+                 "There are currently no invoices available for factoring."}
+              </p>
               {isMSME && (
                 <Button asChild className="mt-4">
                   <Link href="/invoices/new">
@@ -259,11 +284,13 @@ export default async function DashboardPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Invoice ID</TableHead>
-                <TableHead>{isMSME ? 'Client' : 'Seller'}</TableHead>
+                <TableHead>{isMSME ? 'Client' : 'Seller (MSME)'}</TableHead>
+                {isFinancier && <TableHead>Buyer</TableHead>}
                 <TableHead>Amount</TableHead>
                 <TableHead>Due Date</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Factoring</TableHead>
+                {!isFinancier && <TableHead>Factoring</TableHead>}
+                {isFinancier && <TableHead>Factoring Status</TableHead>}
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -272,6 +299,7 @@ export default async function DashboardPage() {
                 <TableRow key={invoice.id}>
                   <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
                   <TableCell>{isMSME ? invoice.clientName : (invoice.sellerName || 'N/A')}</TableCell>
+                  {isFinancier && <TableCell>{invoice.clientName || 'N/A'}</TableCell>}
                   <TableCell>{formatCurrency(invoice.totalAmount)}</TableCell>
                   <TableCell>{invoice.dueDate ? format(new Date(invoice.dueDate), 'MMM dd, yyyy') : 'N/A'}</TableCell>
                   <TableCell>
@@ -282,6 +310,7 @@ export default async function DashboardPage() {
                        <Badge variant={
                         invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED ? "default" :
                         invoice.factoring_status === FactoringStatus.BUYER_REJECTED ? "destructive" :
+                        invoice.factoring_status === FactoringStatus.PENDING_FINANCING ? "secondary" : // Example
                         "secondary"
                        } className={cn("flex items-center gap-1.5", {
                         "bg-green-500 text-white hover:bg-green-600": invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED,
@@ -289,6 +318,7 @@ export default async function DashboardPage() {
                          {invoice.factoring_status === FactoringStatus.REQUESTED && <TrendingUp className="h-3.5 w-3.5" /> }
                          {invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED && <CheckCircle className="h-3.5 w-3.5" /> }
                          {invoice.factoring_status === FactoringStatus.BUYER_REJECTED && <XCircle className="h-3.5 w-3.5" /> }
+                         {invoice.factoring_status === FactoringStatus.PENDING_FINANCING && <Landmark className="h-3.5 w-3.5" />}
                          {getFactoringStatusDisplayName(invoice.factoring_status)}
                        </Badge>
                     ) : (
@@ -307,7 +337,7 @@ export default async function DashboardPage() {
                       )}
                       <Button variant="outline" size="sm" asChild>
                         <Link href={`/invoices/${invoice.id}/view`}>
-                          View
+                          {isFinancier ? 'View Details & Bids' : 'View'}
                           <ArrowUpRight className="ml-2 h-4 w-4" />
                         </Link>
                       </Button>
@@ -329,5 +359,3 @@ export default async function DashboardPage() {
     </div>
   );
 }
-
-    

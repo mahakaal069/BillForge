@@ -12,9 +12,9 @@ export enum FactoringStatus {
   REQUESTED = 'REQUESTED', // Seller requested, pending buyer acceptance
   BUYER_ACCEPTED = 'BUYER_ACCEPTED', // Buyer accepted, ready for financiers
   BUYER_REJECTED = 'BUYER_REJECTED', // Buyer rejected
-  PENDING_FINANCING = 'PENDING_FINANCING', // Financiers are bidding (future)
-  FINANCED = 'FINANCED', // A bid was accepted, funds disbursed (future)
-  REPAID = 'REPAID', // Buyer repaid financier (future)
+  PENDING_FINANCING = 'PENDING_FINANCING', // Open for financier bids
+  FINANCED = 'FINANCED', // A bid was accepted, funds disbursed
+  REPAID = 'REPAID', // Buyer repaid financier
 }
 
 export interface InvoiceItem {
@@ -46,9 +46,23 @@ export interface Invoice {
   created_at?: string; // ISO string timestamp
   updated_at?: string; // ISO string timestamp
   sellerName?: string; // Added for buyer's dashboard view (MSME's name)
+  msme?: { full_name: string | null }; // For joining MSME name on dashboard
+  assigned_financier_id?: string | null;
+  accepted_bid_id?: string | null;
 }
 
 export interface ClientHistoryOption {
   value: string;
   label: string;
+}
+
+export interface FactoringBid {
+  id: string;
+  invoice_id: string;
+  financier_id: string;
+  financier_name?: string; // For display
+  bid_amount: number;
+  discount_fee_percentage: number;
+  status: 'PENDING' | 'ACCEPTED_BY_MSME' | 'REJECTED_BY_MSME' | 'WITHDRAWN_BY_FINANCIER';
+  created_at: string;
 }

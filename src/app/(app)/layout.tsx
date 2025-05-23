@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import React, { useEffect, useState, createContext, useContext } from 'react';
 import type { User as SupabaseUser, AuthSubscription } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase/client';
-import type { Profile } from '@/types/user'; // Import Profile type
+import { UserRole, type Profile } from '@/types/user'; // Import Profile type
 
 import {
   SidebarProvider,
@@ -23,7 +23,7 @@ import {
 import { AppLogo } from '@/components/AppLogo';
 import { NAV_LINKS } from '@/lib/constants';
 import { Button } from '@/components/ui/button';
-import { Home, Settings, User, LogOut, LogIn, Briefcase, Building } from 'lucide-react'; // Added Briefcase, Building
+import { Home, Settings, User, LogOut, LogIn, Briefcase, Building, Landmark } from 'lucide-react'; // Added Landmark
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -146,7 +146,11 @@ function UserNav() {
   const userEmail = user.email || "User";
   const fallbackInitial = userEmail.charAt(0).toUpperCase();
   const userRole = profile?.role;
-  const RoleIcon = userRole === 'MSME' ? Briefcase : userRole === 'BUYER' ? Building : User;
+  
+  let RoleIcon = User; // Default icon
+  if (userRole === UserRole.MSME) RoleIcon = Briefcase;
+  else if (userRole === UserRole.BUYER) RoleIcon = Building;
+  else if (userRole === UserRole.FINANCIER) RoleIcon = Landmark;
 
 
   return (

@@ -31,7 +31,7 @@ export default function SignupPage() {
       setError("Please select a role.");
       toast({
         title: "Role Required",
-        description: "Please select whether you are an MSME or a Buyer.",
+        description: "Please select whether you are an MSME, Buyer, or Financier.",
         variant: "destructive",
       });
       return;
@@ -40,7 +40,7 @@ export default function SignupPage() {
     setError(null);
     setMessage(null);
 
-    console.log('Attempting signup with user data:', { fullName, role, email }); // Added for debugging
+    console.log('Attempting signup with user data:', { fullName, role, email });
 
     const { data, error: signUpError } = await supabase.auth.signUp({
       email,
@@ -172,7 +172,8 @@ export default function SignupPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={UserRole.MSME}>MSME (Enterprise/Seller)</SelectItem>
-                  <SelectItem value={UserRole.BUYER}>Buyer (Customer)</SelectItem>
+                  <SelectItem value={UserRole.BUYER}>Buyer (Client/Customer)</SelectItem>
+                  <SelectItem value={UserRole.FINANCIER}>Financier</SelectItem>
                 </SelectContent>
               </Select>
             </div>

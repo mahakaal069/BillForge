@@ -2,6 +2,7 @@
 export enum UserRole {
   MSME = 'MSME',
   BUYER = 'BUYER',
+  FINANCIER = 'FINANCIER',
 }
 
 export interface Profile {
@@ -12,3 +13,4 @@ export interface Profile {
   created_at: string; // ISO string date
   updated_at: string; // ISO string date
 }
+
