@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { InvoiceFormValues } from '@/components/invoice/InvoiceForm';
-import { InvoiceStatus, type Invoice, type InvoiceItem } from '@/types/invoice'; 
+import { InvoiceStatus, FactoringStatus, type Invoice, type InvoiceItem } from '@/types/invoice'; 
 
 export interface CreateInvoiceResult {
   success: boolean;
@@ -43,6 +43,8 @@ export async function createInvoiceAction(data: InvoiceFormValues, status: Invoi
     subtotal: subtotal,
     tax_amount: taxAmount,
     total_amount: totalAmount,
+    is_factoring_requested: false, // Default for new invoices
+    factoring_status: FactoringStatus.NONE, // Default for new invoices
   };
 
   const { data: newInvoice, error: invoiceError } = await supabase
@@ -102,7 +104,24 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
   const { data: invoiceData, error: invoiceError } = await supabase
     .from('invoices')
     .select(`
-      *,
+      id,
+      invoice_number,
+      client_name,
+      client_email,
+      client_address,
+      invoice_date,
+      due_date,
+      payment_terms,
+      notes,
+      status,
+      subtotal,
+      tax_amount,
+      total_amount,
+      is_factoring_requested,
+      factoring_status,
+      user_id,
+      created_at,
+      updated_at,
       invoice_items (
         id,
         description,
@@ -112,7 +131,7 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
       )
     `)
     .eq('id', id)
-    .eq('user_id', user.id)
+    .eq('user_id', user.id) // Ensure user owns the invoice, or adjust for buyer view later
     .single();
 
   if (invoiceError) {
@@ -146,6 +165,8 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
     paymentTerms: invoiceData.payment_terms,
     notes: invoiceData.notes,
     user_id: invoiceData.user_id,
+    is_factoring_requested: invoiceData.is_factoring_requested,
+    factoring_status: invoiceData.factoring_status as FactoringStatus,
     created_at: invoiceData.created_at,
     updated_at: invoiceData.updated_at,
   };
@@ -160,6 +181,20 @@ export async function updateInvoiceAction(invoiceId: string, data: InvoiceFormVa
   if (!user) {
     return { success: false, error: 'User not authenticated. Please log in.' };
   }
+
+  // Fetch existing invoice to preserve factoring status if not explicitly changed
+  const { data: existingInvoice, error: fetchExistingError } = await supabase
+    .from('invoices')
+    .select('is_factoring_requested, factoring_status')
+    .eq('id', invoiceId)
+    .eq('user_id', user.id)
+    .single();
+
+  if (fetchExistingError || !existingInvoice) {
+    console.error('Error fetching existing invoice for update or not found:', fetchExistingError);
+    return { success: false, error: 'Failed to find existing invoice for update.' };
+  }
+
 
   const { items, clientName, clientEmail, clientAddress, invoiceDate, dueDate, paymentTerms, notes, subtotal, taxAmount, totalAmount } = data;
 
@@ -180,7 +215,10 @@ export async function updateInvoiceAction(invoiceId: string, data: InvoiceFormVa
     subtotal: subtotal,
     tax_amount: taxAmount,
     total_amount: totalAmount,
-    updated_at: new Date().toISOString(), 
+    updated_at: new Date().toISOString(),
+    // Preserve existing factoring details unless explicitly changing them
+    is_factoring_requested: existingInvoice.is_factoring_requested,
+    factoring_status: existingInvoice.factoring_status,
   };
 
   const { error: invoiceUpdateError } = await supabase
@@ -269,8 +307,65 @@ export async function deleteInvoiceAction(invoiceId: string): Promise<{ success:
   }
 
   revalidatePath('/dashboard');
+  revalidatePath(`/invoices/${invoiceId}/view`); // Revalidate view page as it might be accessed
   // No specific redirect here as the calling component will handle it.
-  // Might also want to revalidate other paths if invoices appear elsewhere.
 
+  return { success: true };
+}
+
+export async function requestInvoiceFactoringAction(invoiceId: string): Promise<{ success: boolean; error?: string }> {
+  const supabase = createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: 'User not authenticated.' };
+  }
+
+  // Check if the user is an MSME and owns the invoice
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+
+  if (profile?.role !== 'MSME') {
+    return { success: false, error: 'Only MSME users can request factoring.' };
+  }
+
+  const { data: invoice, error: fetchError } = await supabase
+    .from('invoices')
+    .select('id, user_id, status, factoring_status')
+    .eq('id', invoiceId)
+    .eq('user_id', user.id)
+    .single();
+
+  if (fetchError || !invoice) {
+    return { success: false, error: 'Invoice not found or you do not have permission.' };
+  }
+
+  if (invoice.status !== InvoiceStatus.SENT && invoice.status !== InvoiceStatus.PAID) { // Or other applicable statuses
+    return { success: false, error: 'Factoring can only be requested for sent or paid invoices.' };
+  }
+
+  if (invoice.factoring_status !== FactoringStatus.NONE) {
+    return { success: false, error: 'Invoice is already in a factoring process or request.' };
+  }
+
+  const { error: updateError } = await supabase
+    .from('invoices')
+    .update({
+      is_factoring_requested: true,
+      factoring_status: FactoringStatus.REQUESTED,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', invoiceId);
+
+  if (updateError) {
+    console.error('Error updating invoice for factoring:', updateError);
+    return { success: false, error: 'Failed to request factoring for the invoice.' };
+  }
+
+  revalidatePath(`/invoices/${invoiceId}/view`);
+  revalidatePath('/dashboard');
   return { success: true };
 }

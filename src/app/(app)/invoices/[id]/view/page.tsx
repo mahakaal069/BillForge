@@ -1,18 +1,18 @@
 
-'use client'; // Make this a client component to handle dialog state
+'use client'; 
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation'; // useRouter for redirect
+import { useParams, useRouter } from 'next/navigation'; 
 import Link from 'next/link';
-import { getInvoiceWithItemsById, type InvoiceWithItems } from '@/app/(app)/invoices/actions';
-import { AlertTriangle, FileWarning, Edit, Trash2 } from 'lucide-react'; // Added Trash2
+import { getInvoiceWithItemsById, type InvoiceWithItems, deleteInvoiceAction, requestInvoiceFactoringAction } from '@/app/(app)/invoices/actions';
+import { AlertTriangle, FileWarning, Edit, Trash2, TrendingUp, Send } from 'lucide-react'; 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { InvoiceStatusBadge } from '@/components/InvoiceStatusBadge';
 import { format } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
-import { InvoiceStatus } from '@/types/invoice';
-import { Skeleton } from '@/components/ui/skeleton'; // For loading state
+import { InvoiceStatus, FactoringStatus } from '@/types/invoice';
+import { Skeleton } from '@/components/ui/skeleton'; 
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,8 +24,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { deleteInvoiceAction } from '@/app/(app)/invoices/actions';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/app/(app)/layout'; // To get user role
+import { Badge } from '@/components/ui/badge'; // For Factoring Status Display
 
 
 function formatCurrency(amount: number | null | undefined) {
@@ -33,10 +34,25 @@ function formatCurrency(amount: number | null | undefined) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
 }
 
+function getFactoringStatusDisplayName(status: FactoringStatus | undefined | null): string {
+  if (!status || status === FactoringStatus.NONE) return 'Not Requested';
+  switch (status) {
+    case FactoringStatus.REQUESTED: return 'Factoring Requested';
+    case FactoringStatus.BUYER_ACCEPTED: return 'Buyer Accepted FU';
+    case FactoringStatus.BUYER_REJECTED: return 'Buyer Rejected FU';
+    case FactoringStatus.PENDING_FINANCING: return 'Pending Financing';
+    case FactoringStatus.FINANCED: return 'Financed';
+    case FactoringStatus.REPAID: return 'Repaid to Financier';
+    default: return status.replace(/_/g, ' ');
+  }
+}
+
+
 export default function ViewInvoicePage() {
   const params = useParams();
   const router = useRouter();
   const { toast } = useToast();
+  const { user, profile } = useAuth(); // Get user and profile
   const invoiceId = params.id as string;
 
   const [invoice, setInvoice] = useState<InvoiceWithItems | null>(null);
@@ -44,6 +60,7 @@ export default function ViewInvoicePage() {
   const [error, setError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isRequestingFactoring, setIsRequestingFactoring] = useState(false);
 
   useEffect(() => {
     if (!invoiceId) {
@@ -83,7 +100,7 @@ export default function ViewInvoicePage() {
           title: 'Invoice Deleted',
           description: `Invoice #${invoice.invoiceNumber} has been successfully deleted.`,
         });
-        router.push('/dashboard'); // Redirect to dashboard after deletion
+        router.push('/dashboard'); 
       } else {
         toast({
           title: 'Error Deleting Invoice',
@@ -101,6 +118,37 @@ export default function ViewInvoicePage() {
     } finally {
       setIsDeleting(false);
       setShowDeleteDialog(false);
+    }
+  };
+
+  const handleRequestFactoring = async () => {
+    if (!invoice || !user || profile?.role !== 'MSME') return;
+    setIsRequestingFactoring(true);
+    try {
+      const result = await requestInvoiceFactoringAction(invoice.id);
+      if (result.success) {
+        toast({
+          title: 'Factoring Requested',
+          description: `Invoice #${invoice.invoiceNumber} has been submitted for factoring. Buyer acceptance is pending.`,
+        });
+        // Re-fetch invoice data to show updated status
+        const updatedInvoice = await getInvoiceWithItemsById(invoiceId);
+        if (updatedInvoice) setInvoice(updatedInvoice);
+      } else {
+        toast({
+          title: 'Error Requesting Factoring',
+          description: result.error || 'Could not request factoring for this invoice.',
+          variant: 'destructive',
+        });
+      }
+    } catch (err) {
+      toast({
+        title: 'Factoring Request Failed',
+        description: err instanceof Error ? err.message : 'An unexpected error occurred.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsRequestingFactoring(false);
     }
   };
 
@@ -157,15 +205,28 @@ export default function ViewInvoicePage() {
     );
   }
 
+  const canRequestFactoring = user && profile?.role === 'MSME' && 
+                              invoice.user_id === user.id && 
+                              (invoice.status === InvoiceStatus.SENT || invoice.status === InvoiceStatus.PAID) &&
+                              invoice.factoring_status === FactoringStatus.NONE;
+
   return (
     <div className="max-w-4xl mx-auto">
-      <div className="mb-6 flex justify-between items-center">
+      <div className="mb-6 flex flex-wrap justify-between items-center gap-4">
         <div>
             <h1 className="text-2xl font-semibold">Invoice {invoice.invoiceNumber}</h1>
-            <InvoiceStatusBadge status={invoice.status} className="mt-1"/>
+            <div className="flex items-center gap-2 mt-1">
+                <InvoiceStatusBadge status={invoice.status} />
+                {invoice.factoring_status !== FactoringStatus.NONE && (
+                    <Badge variant="outline" className="flex items-center gap-1.5">
+                        <TrendingUp className="h-3.5 w-3.5" />
+                        {getFactoringStatusDisplayName(invoice.factoring_status)}
+                    </Badge>
+                )}
+            </div>
         </div>
-        <div className="flex items-center space-x-2">
-            {invoice.status === InvoiceStatus.DRAFT && (
+        <div className="flex items-center space-x-2 flex-wrap">
+            {invoice.status === InvoiceStatus.DRAFT && user && invoice.user_id === user.id && (
                 <Button variant="outline" asChild>
                     <Link href={`/invoices/${invoice.id}/edit`}>
                         <Edit className="mr-2 h-4 w-4" />
@@ -173,32 +234,45 @@ export default function ViewInvoicePage() {
                     </Link>
                 </Button>
             )}
-            <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-              <AlertDialogTrigger asChild>
-                <Button variant="outline" className="text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/50">
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Delete Invoice
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This action cannot be undone. This will permanently delete invoice <strong>#{invoice.invoiceNumber}</strong>.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={handleDeleteInvoice}
-                    disabled={isDeleting}
-                    className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-                  >
-                    {isDeleting ? 'Deleting...' : 'Yes, delete invoice'}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+             {canRequestFactoring && (
+              <Button 
+                variant="outline" 
+                onClick={handleRequestFactoring} 
+                disabled={isRequestingFactoring}
+                className="border-green-500 text-green-600 hover:bg-green-50 hover:text-green-700"
+              >
+                <Send className="mr-2 h-4 w-4" />
+                {isRequestingFactoring ? 'Requesting...' : 'Request Factoring'}
+              </Button>
+            )}
+            {user && invoice.user_id === user.id && ( // Only owner can delete
+              <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" className="text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/50">
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete Invoice
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This action cannot be undone. This will permanently delete invoice <strong>#{invoice.invoiceNumber}</strong>.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDeleteInvoice}
+                      disabled={isDeleting}
+                      className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                    >
+                      {isDeleting ? 'Deleting...' : 'Yes, delete invoice'}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
             <Button variant="outline" asChild>
                  <Link href={`/dashboard`}>Back to Dashboard</Link>
             </Button>

@@ -4,17 +4,31 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { Invoice } from '@/types/invoice';
-import { InvoiceStatus } from '@/types/invoice';
+import { InvoiceStatus, FactoringStatus } from '@/types/invoice';
 import { InvoiceStatusBadge } from '@/components/InvoiceStatusBadge';
 import { format } from 'date-fns';
-import { ArrowUpRight, PlusCircle, FileText, AlertTriangle, Edit } from 'lucide-react';
+import { ArrowUpRight, PlusCircle, FileText, AlertTriangle, Edit, TrendingUp } from 'lucide-react';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
-import { DeleteInvoiceDialog } from '@/components/invoice/DeleteInvoiceDialog'; // Import the new component
+import { DeleteInvoiceDialog } from '@/components/invoice/DeleteInvoiceDialog'; 
+import { Badge } from '@/components/ui/badge';
 
 function formatCurrency(amount: number | null | undefined) {
   if (amount === null || amount === undefined) return '$0.00';
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+}
+
+function getFactoringStatusDisplayName(status: FactoringStatus | undefined | null): string {
+  if (!status || status === FactoringStatus.NONE) return '';
+  switch (status) {
+    case FactoringStatus.REQUESTED: return 'Factoring Requested';
+    case FactoringStatus.BUYER_ACCEPTED: return 'Buyer Accepted FU';
+    case FactoringStatus.BUYER_REJECTED: return 'Buyer Rejected FU';
+    case FactoringStatus.PENDING_FINANCING: return 'Pending Financing';
+    case FactoringStatus.FINANCED: return 'Financed';
+    case FactoringStatus.REPAID: return 'Repaid to Financier';
+    default: return status.replace(/_/g, ' ');
+  }
 }
 
 export default async function DashboardPage() {
@@ -34,6 +48,8 @@ export default async function DashboardPage() {
       total_amount,
       due_date,
       status,
+      is_factoring_requested,
+      factoring_status,
       created_at
     `)
     .eq('user_id', user.id)
@@ -64,6 +80,8 @@ export default async function DashboardPage() {
     taxAmount: 0,
     totalAmount: inv.total_amount ?? 0,
     status: inv.status as InvoiceStatus,
+    is_factoring_requested: inv.is_factoring_requested,
+    factoring_status: inv.factoring_status as FactoringStatus,
     created_at: inv.created_at,
   }));
 
@@ -159,6 +177,7 @@ export default async function DashboardPage() {
                 <TableHead>Amount</TableHead>
                 <TableHead>Due Date</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Factoring</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -171,6 +190,16 @@ export default async function DashboardPage() {
                   <TableCell>{invoice.dueDate ? format(new Date(invoice.dueDate), 'MMM dd, yyyy') : 'N/A'}</TableCell>
                   <TableCell>
                     <InvoiceStatusBadge status={invoice.status} />
+                  </TableCell>
+                  <TableCell>
+                    {invoice.factoring_status && invoice.factoring_status !== FactoringStatus.NONE ? (
+                       <Badge variant="secondary" className="flex items-center gap-1.5">
+                         <TrendingUp className="h-3.5 w-3.5" />
+                         {getFactoringStatusDisplayName(invoice.factoring_status)}
+                       </Badge>
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end space-x-2">
