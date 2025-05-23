@@ -7,11 +7,12 @@ import type { Invoice } from '@/types/invoice';
 import { InvoiceStatus, FactoringStatus } from '@/types/invoice';
 import { InvoiceStatusBadge } from '@/components/InvoiceStatusBadge';
 import { format } from 'date-fns';
-import { ArrowUpRight, PlusCircle, FileText, AlertTriangle, Edit, TrendingUp } from 'lucide-react';
+import { ArrowUpRight, PlusCircle, FileText, AlertTriangle, Edit, TrendingUp, CheckCircle, XCircle } from 'lucide-react';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
-import { DeleteInvoiceDialog } from '@/components/invoice/DeleteInvoiceDialog'; 
+import { DeleteInvoiceDialog } from '@/components/invoice/DeleteInvoiceDialog';
 import { Badge } from '@/components/ui/badge';
+import type { Profile } from '@/types/user';
 
 function formatCurrency(amount: number | null | undefined) {
   if (amount === null || amount === undefined) return '$0.00';
@@ -22,8 +23,8 @@ function getFactoringStatusDisplayName(status: FactoringStatus | undefined | nul
   if (!status || status === FactoringStatus.NONE) return '';
   switch (status) {
     case FactoringStatus.REQUESTED: return 'Factoring Requested';
-    case FactoringStatus.BUYER_ACCEPTED: return 'Buyer Accepted FU';
-    case FactoringStatus.BUYER_REJECTED: return 'Buyer Rejected FU';
+    case FactoringStatus.BUYER_ACCEPTED: return 'Buyer Accepted';
+    case FactoringStatus.BUYER_REJECTED: return 'Buyer Rejected';
     case FactoringStatus.PENDING_FINANCING: return 'Pending Financing';
     case FactoringStatus.FINANCED: return 'Financed';
     case FactoringStatus.REPAID: return 'Repaid to Financier';
@@ -39,21 +40,69 @@ export default async function DashboardPage() {
     redirect('/login');
   }
 
-  const { data: invoicesData, error: invoicesError } = await supabase
-    .from('invoices')
-    .select(`
-      id,
-      invoice_number,
-      client_name,
-      total_amount,
-      due_date,
-      status,
-      is_factoring_requested,
-      factoring_status,
-      created_at
-    `)
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false });
+  const { data: profileData, error: profileError } = await supabase
+    .from('profiles')
+    .select('role, email, full_name')
+    .eq('id', user.id)
+    .single();
+
+  if (profileError || !profileData) {
+    console.error('Error fetching profile:', profileError);
+    return (
+        <div className="flex flex-col items-center justify-center h-full">
+            <AlertTriangle className="w-12 h-12 text-destructive mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Error Fetching User Profile</h2>
+            <p className="text-muted-foreground">Could not load your user profile. Please try again later.</p>
+        </div>
+    );
+  }
+  const profile = profileData as Profile;
+
+
+  let invoicesQuery;
+  if (profile.role === 'MSME') {
+    invoicesQuery = supabase
+      .from('invoices')
+      .select(`
+        id,
+        invoice_number,
+        client_name,
+        total_amount,
+        due_date,
+        status,
+        is_factoring_requested,
+        factoring_status,
+        created_at
+      `)
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+  } else if (profile.role === 'BUYER' && user.email) {
+     // For buyers, client_name is their name. They might want to see MSME name.
+     // We can add a join to profiles table later if needed.
+    invoicesQuery = supabase
+      .from('invoices')
+      .select(`
+        id,
+        invoice_number,
+        client_name, 
+        total_amount,
+        due_date,
+        status,
+        is_factoring_requested,
+        factoring_status,
+        created_at,
+        msme:profiles!invoices_user_id_fkey(full_name) 
+      `)
+      .eq('client_email', user.email)
+      .order('created_at', { ascending: false });
+  } else {
+    // No role or buyer without email, show empty or error
+    invoicesQuery = supabase.from('invoices').select('*').limit(0); // Empty query
+  }
+
+
+  const { data: invoicesData, error: invoicesError } = await invoicesQuery;
+
 
   if (invoicesError) {
     console.error('Error fetching invoices:', invoicesError);
@@ -67,11 +116,12 @@ export default async function DashboardPage() {
     );
   }
 
-  const invoices: Invoice[] = (invoicesData || []).map(inv => ({
+  const invoices: Invoice[] = (invoicesData || []).map((inv: any) => ({
     id: inv.id,
     invoiceNumber: inv.invoice_number,
-    clientName: inv.client_name,
-    clientEmail: '',
+    clientName: inv.client_name, // For buyer, this is their name. For MSME, this is their client.
+    sellerName: profile.role === 'BUYER' && inv.msme ? inv.msme.full_name : undefined, // Seller name for buyer dashboard
+    clientEmail: '', // Not strictly needed for dashboard display logic here
     clientAddress: '',
     invoiceDate: '',
     dueDate: inv.due_date,
@@ -85,10 +135,12 @@ export default async function DashboardPage() {
     created_at: inv.created_at,
   }));
 
+  const isMSME = profile.role === 'MSME';
+
   const paidInvoices = invoices.filter(inv => inv.status === InvoiceStatus.PAID);
   const outstandingInvoices = invoices.filter(inv => inv.status === InvoiceStatus.SENT || inv.status === InvoiceStatus.OVERDUE);
   const overdueInvoices = invoices.filter(inv => inv.status === InvoiceStatus.OVERDUE);
-  const draftInvoices = invoices.filter(inv => inv.status === InvoiceStatus.DRAFT);
+  const draftInvoices = invoices.filter(inv => inv.status === InvoiceStatus.DRAFT && isMSME);
 
   const totalRevenue = paidInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
   const totalOutstanding = outstandingInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
@@ -99,14 +151,17 @@ export default async function DashboardPage() {
     <div className="flex flex-col gap-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <Button asChild>
-          <Link href="/invoices/new">
-            <PlusCircle className="mr-2 h-5 w-5" />
-            New Invoice
-          </Link>
-        </Button>
+        {isMSME && (
+          <Button asChild>
+            <Link href="/invoices/new">
+              <PlusCircle className="mr-2 h-5 w-5" />
+              New Invoice
+            </Link>
+          </Button>
+        )}
       </div>
 
+    {isMSME && (
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -148,32 +203,45 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+    )}
+    {profile.role === 'BUYER' && (
+        <Card>
+            <CardHeader>
+                <CardTitle>Invoices Sent To You</CardTitle>
+                <CardDescription>These are invoices where you are listed as the client.</CardDescription>
+            </CardHeader>
+            {/* Buyer-specific summary cards could go here later */}
+        </Card>
+    )}
 
       <Card>
         <CardHeader>
-          <CardTitle>Recent Invoices</CardTitle>
+          <CardTitle>{isMSME ? 'Recent Invoices' : 'Your Invoices'}</CardTitle>
           <CardDescription>
-            {invoices.length > 0 ? 'A list of your recent invoices.' : 'No invoices found. Create your first one!'}
+            {invoices.length > 0 ? `A list of your ${isMSME ? 'recent' : ''} invoices.` : 'No invoices found.'}
+            {invoices.length === 0 && isMSME && ' Create your first one!'}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {invoices.length === 0 ? (
             <div className="text-center py-10">
               <FileText className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">You haven&apos;t created any invoices yet.</p>
-              <Button asChild className="mt-4">
-                <Link href="/invoices/new">
-                  <PlusCircle className="mr-2 h-5 w-5" />
-                  Create New Invoice
-                </Link>
-              </Button>
+              <p className="text-muted-foreground">You haven&apos;t {isMSME ? 'created any' : 'received any'} invoices yet.</p>
+              {isMSME && (
+                <Button asChild className="mt-4">
+                  <Link href="/invoices/new">
+                    <PlusCircle className="mr-2 h-5 w-5" />
+                    Create New Invoice
+                  </Link>
+                </Button>
+              )}
             </div>
           ) : (
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Invoice ID</TableHead>
-                <TableHead>Client</TableHead>
+                <TableHead>{isMSME ? 'Client' : 'Seller'}</TableHead>
                 <TableHead>Amount</TableHead>
                 <TableHead>Due Date</TableHead>
                 <TableHead>Status</TableHead>
@@ -185,7 +253,7 @@ export default async function DashboardPage() {
               {invoices.map((invoice: Invoice) => (
                 <TableRow key={invoice.id}>
                   <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
-                  <TableCell>{invoice.clientName}</TableCell>
+                  <TableCell>{isMSME ? invoice.clientName : (invoice.sellerName || 'N/A')}</TableCell>
                   <TableCell>{formatCurrency(invoice.totalAmount)}</TableCell>
                   <TableCell>{invoice.dueDate ? format(new Date(invoice.dueDate), 'MMM dd, yyyy') : 'N/A'}</TableCell>
                   <TableCell>
@@ -193,8 +261,16 @@ export default async function DashboardPage() {
                   </TableCell>
                   <TableCell>
                     {invoice.factoring_status && invoice.factoring_status !== FactoringStatus.NONE ? (
-                       <Badge variant="secondary" className="flex items-center gap-1.5">
-                         <TrendingUp className="h-3.5 w-3.5" />
+                       <Badge variant={
+                        invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED ? "default" :
+                        invoice.factoring_status === FactoringStatus.BUYER_REJECTED ? "destructive" :
+                        "secondary"
+                       } className={cn("flex items-center gap-1.5", {
+                        "bg-green-500 text-white hover:bg-green-600": invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED,
+                       })}>
+                         {invoice.factoring_status === FactoringStatus.REQUESTED && <TrendingUp className="h-3.5 w-3.5" /> }
+                         {invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED && <CheckCircle className="h-3.5 w-3.5" /> }
+                         {invoice.factoring_status === FactoringStatus.BUYER_REJECTED && <XCircle className="h-3.5 w-3.5" /> }
                          {getFactoringStatusDisplayName(invoice.factoring_status)}
                        </Badge>
                     ) : (
@@ -203,7 +279,7 @@ export default async function DashboardPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end space-x-2">
-                      {invoice.status === InvoiceStatus.DRAFT && (
+                      {isMSME && invoice.status === InvoiceStatus.DRAFT && (
                         <Button variant="outline" size="sm" asChild>
                           <Link href={`/invoices/${invoice.id}/edit`}>
                             <Edit className="mr-2 h-4 w-4" />
@@ -217,7 +293,7 @@ export default async function DashboardPage() {
                           <ArrowUpRight className="ml-2 h-4 w-4" />
                         </Link>
                       </Button>
-                       <DeleteInvoiceDialog invoiceId={invoice.id} invoiceNumber={invoice.invoiceNumber} />
+                       {isMSME && <DeleteInvoiceDialog invoiceId={invoice.id} invoiceNumber={invoice.invoiceNumber} />}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -235,3 +311,4 @@ export default async function DashboardPage() {
     </div>
   );
 }
+

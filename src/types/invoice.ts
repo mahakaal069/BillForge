@@ -27,10 +27,10 @@ export interface InvoiceItem {
 
 export interface Invoice {
   id: string; // DB generated UUID
-  user_id?: string; // Foreign key to auth.users
+  user_id?: string; // Foreign key to auth.users (MSME who created it)
   invoiceNumber: string;
-  clientName: string;
-  clientEmail: string;
+  clientName: string; // Buyer's name
+  clientEmail: string; // Buyer's email
   clientAddress: string;
   invoiceDate: string; // ISO string date 'YYYY-MM-DD'
   dueDate: string; // ISO string date 'YYYY-MM-DD'
@@ -45,6 +45,7 @@ export interface Invoice {
   factoring_status?: FactoringStatus;
   created_at?: string; // ISO string timestamp
   updated_at?: string; // ISO string timestamp
+  sellerName?: string; // Added for buyer's dashboard view (MSME's name)
 }
 
 export interface ClientHistoryOption {
