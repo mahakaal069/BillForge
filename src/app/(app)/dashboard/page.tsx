@@ -115,7 +115,7 @@ export default async function DashboardPage() {
         created_at,
         msme:profiles!user_id(full_name) 
       `)
-      .eq('factoring_status', FactoringStatus.BUYER_ACCEPTED)
+      .in('factoring_status', [FactoringStatus.BUYER_ACCEPTED, FactoringStatus.PENDING_FINANCING, FactoringStatus.FINANCED]) // Financiers can see invoices open for bidding or already financed by them (future enhancement for "financed by them")
       .order('created_at', { ascending: false });
   } else {
     console.warn(`Dashboard: User ${user.id} has role '${profile.role}' and email '${user.email}', which doesn't match MSME, BUYER with email, or FINANCIER for invoice fetching. Returning empty set.`);
@@ -244,9 +244,9 @@ export default async function DashboardPage() {
             <CardHeader>
                 <CardTitle className="flex items-center">
                     <Landmark className="mr-2 h-5 w-5 text-primary"/>
-                    Invoices Ready for Factoring
+                    Factoring Opportunities
                 </CardTitle>
-                <CardDescription>These invoices have been accepted by buyers for factoring and are awaiting financier bids.</CardDescription>
+                <CardDescription>These invoices have been accepted by buyers for factoring or are pending financing bids.</CardDescription>
             </CardHeader>
         </Card>
     )}
@@ -310,15 +310,16 @@ export default async function DashboardPage() {
                        <Badge variant={
                         invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED ? "default" :
                         invoice.factoring_status === FactoringStatus.BUYER_REJECTED ? "destructive" :
-                        invoice.factoring_status === FactoringStatus.PENDING_FINANCING ? "secondary" : // Example
+                        invoice.factoring_status === FactoringStatus.PENDING_FINANCING ? "secondary" : 
                         "secondary"
                        } className={cn("flex items-center gap-1.5", {
-                        "bg-green-500 text-white hover:bg-green-600": invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED,
+                        "bg-green-500 text-white hover:bg-green-600": invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED || invoice.factoring_status === FactoringStatus.PENDING_FINANCING,
+                        "bg-accent text-accent-foreground hover:bg-accent/90": invoice.factoring_status === FactoringStatus.FINANCED,
                        })}>
                          {invoice.factoring_status === FactoringStatus.REQUESTED && <TrendingUp className="h-3.5 w-3.5" /> }
-                         {invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED && <CheckCircle className="h-3.5 w-3.5" /> }
+                         {(invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED || invoice.factoring_status === FactoringStatus.PENDING_FINANCING) && <Handshake className="h-3.5 w-3.5" /> }
                          {invoice.factoring_status === FactoringStatus.BUYER_REJECTED && <XCircle className="h-3.5 w-3.5" /> }
-                         {invoice.factoring_status === FactoringStatus.PENDING_FINANCING && <Landmark className="h-3.5 w-3.5" />}
+                         {invoice.factoring_status === FactoringStatus.FINANCED && <Landmark className="h-3.5 w-3.5" /> }
                          {getFactoringStatusDisplayName(invoice.factoring_status)}
                        </Badge>
                     ) : (
@@ -337,7 +338,7 @@ export default async function DashboardPage() {
                       )}
                       <Button variant="outline" size="sm" asChild>
                         <Link href={`/invoices/${invoice.id}/view`}>
-                          {isFinancier ? 'View Details & Bids' : 'View'}
+                          {isFinancier ? 'View Details & Bid' : 'View'}
                           <ArrowUpRight className="ml-2 h-4 w-4" />
                         </Link>
                       </Button>
