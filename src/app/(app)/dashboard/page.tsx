@@ -7,7 +7,7 @@ import type { Invoice } from '@/types/invoice';
 import { InvoiceStatus, FactoringStatus } from '@/types/invoice';
 import { InvoiceStatusBadge } from '@/components/InvoiceStatusBadge';
 import { format } from 'date-fns';
-import { ArrowUpRight, PlusCircle, FileText, AlertTriangle, Edit, TrendingUp, CheckCircle, XCircle, Landmark } from 'lucide-react';
+import { ArrowUpRight, PlusCircle, FileText, AlertTriangle, Edit, TrendingUp, CheckCircle, XCircle, Landmark, Handshake } from 'lucide-react';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { DeleteInvoiceDialog } from '@/components/invoice/DeleteInvoiceDialog';
@@ -53,7 +53,7 @@ export default async function DashboardPage() {
       console.error('Dashboard: Error fetching profile - Supabase message:', (profileError as any).message, 'Full error object:', profileError);
     } else if (!profileData) {
       console.error(`Dashboard: Error fetching profile - No profile data found for user ID: ${user.id}. Raw profileError:`, profileError);
-    } else { 
+    } else {
       console.error('Dashboard: Error fetching profile - An unspecified issue occurred. Raw profileError:', profileError, 'ProfileData exists:', !!profileData);
     }
     return (
@@ -90,14 +90,14 @@ export default async function DashboardPage() {
       .select(`
         id,
         invoice_number,
-        client_name, 
+        client_name,
         total_amount,
         due_date,
         status,
         is_factoring_requested,
         factoring_status,
         created_at,
-        msme:profiles!user_id(full_name)
+        msme:profiles!user_id:id(full_name)
       `)
       .eq('client_email', user.email)
       .order('created_at', { ascending: false });
@@ -113,13 +113,13 @@ export default async function DashboardPage() {
         status,
         factoring_status,
         created_at,
-        msme:profiles!user_id(full_name) 
+        msme:profiles!user_id:id(full_name)
       `)
-      .in('factoring_status', [FactoringStatus.BUYER_ACCEPTED, FactoringStatus.PENDING_FINANCING, FactoringStatus.FINANCED]) // Financiers can see invoices open for bidding or already financed by them (future enhancement for "financed by them")
+      .in('factoring_status', [FactoringStatus.BUYER_ACCEPTED, FactoringStatus.PENDING_FINANCING, FactoringStatus.FINANCED])
       .order('created_at', { ascending: false });
   } else {
     console.warn(`Dashboard: User ${user.id} has role '${profile.role}' and email '${user.email}', which doesn't match MSME, BUYER with email, or FINANCIER for invoice fetching. Returning empty set.`);
-    invoicesQuery = supabase.from('invoices').select('*').limit(0); 
+    invoicesQuery = supabase.from('invoices').select('*').limit(0);
   }
 
 
@@ -130,7 +130,7 @@ export default async function DashboardPage() {
     const errorMessage = (invoicesError as any).message || 'No specific error message. Error object might be empty or not an instance of Error.';
     const userContext = `User ID: ${user.id}, Role: ${profile.role}, Email for query (if buyer): ${profile.role === UserRole.BUYER ? user.email : 'N/A'}.`;
     console.error(`Error fetching invoices: ${errorMessage}. ${userContext}. Raw error object:`, invoicesError);
-    
+
     return (
         <div className="flex flex-col items-center justify-center h-full">
             <AlertTriangle className="w-12 h-12 text-destructive mb-4" />
@@ -144,9 +144,9 @@ export default async function DashboardPage() {
   const invoices: Invoice[] = (invoicesData || []).map((inv: any) => ({
     id: inv.id,
     invoiceNumber: inv.invoice_number,
-    clientName: inv.client_name, 
+    clientName: inv.client_name,
     sellerName: (profile.role === UserRole.BUYER || profile.role === UserRole.FINANCIER) && inv.msme ? inv.msme.full_name : undefined,
-    clientEmail: '', 
+    clientEmail: '',
     clientAddress: '',
     invoiceDate: '',
     dueDate: inv.due_date,
@@ -310,7 +310,7 @@ export default async function DashboardPage() {
                        <Badge variant={
                         invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED ? "default" :
                         invoice.factoring_status === FactoringStatus.BUYER_REJECTED ? "destructive" :
-                        invoice.factoring_status === FactoringStatus.PENDING_FINANCING ? "secondary" : 
+                        invoice.factoring_status === FactoringStatus.PENDING_FINANCING ? "secondary" :
                         "secondary"
                        } className={cn("flex items-center gap-1.5", {
                         "bg-green-500 text-white hover:bg-green-600": invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED || invoice.factoring_status === FactoringStatus.PENDING_FINANCING,
