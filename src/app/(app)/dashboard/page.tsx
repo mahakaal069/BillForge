@@ -1,4 +1,5 @@
 
+
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -97,7 +98,7 @@ export default async function DashboardPage() {
         is_factoring_requested,
         factoring_status,
         created_at,
-        msme:profiles!user_id:id(full_name)
+        profiles!user_id:id(full_name)
       `)
       .eq('client_email', user.email)
       .order('created_at', { ascending: false });
@@ -113,7 +114,7 @@ export default async function DashboardPage() {
         status,
         factoring_status,
         created_at,
-        msme:profiles!user_id:id(full_name)
+        profiles!user_id:id(full_name)
       `)
       .in('factoring_status', [FactoringStatus.BUYER_ACCEPTED, FactoringStatus.PENDING_FINANCING, FactoringStatus.FINANCED])
       .order('created_at', { ascending: false });
@@ -145,7 +146,7 @@ export default async function DashboardPage() {
     id: inv.id,
     invoiceNumber: inv.invoice_number,
     clientName: inv.client_name,
-    sellerName: (profile.role === UserRole.BUYER || profile.role === UserRole.FINANCIER) && inv.msme ? inv.msme.full_name : undefined,
+    sellerName: (profile.role === UserRole.BUYER || profile.role === UserRole.FINANCIER) && inv.profiles ? inv.profiles.full_name : undefined,
     clientEmail: '',
     clientAddress: '',
     invoiceDate: '',
@@ -360,3 +361,4 @@ export default async function DashboardPage() {
     </div>
   );
 }
+
