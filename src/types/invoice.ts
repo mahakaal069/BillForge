@@ -10,11 +10,11 @@ export enum InvoiceStatus {
 export enum FactoringStatus {
   NONE = 'NONE', // Not involved in factoring
   REQUESTED = 'REQUESTED', // Seller requested, pending buyer acceptance
-  BUYER_ACCEPTED = 'BUYER_ACCEPTED', // Buyer accepted, ready for financiers
+  BUYER_ACCEPTED = 'BUYER_ACCEPTED', // Buyer accepted, ready for financier bids or first bid
   BUYER_REJECTED = 'BUYER_REJECTED', // Buyer rejected
-  PENDING_FINANCING = 'PENDING_FINANCING', // Open for financier bids
-  FINANCED = 'FINANCED', // A bid was accepted, funds disbursed
-  REPAID = 'REPAID', // Buyer repaid financier
+  PENDING_FINANCING = 'PENDING_FINANCING', // Open for financier bids (at least one bid placed)
+  FINANCED = 'FINANCED', // A bid was accepted, funds disbursed (conceptually)
+  REPAID = 'REPAID', // Buyer repaid financier (conceptually)
 }
 
 export interface InvoiceItem {
@@ -23,6 +23,21 @@ export interface InvoiceItem {
   quantity: number;
   unitPrice: number;
   total: number;
+}
+
+export interface FactoringBid {
+  id: string;
+  invoice_id: string;
+  financier_id: string;
+  financier_name?: string; // For display, joined from profiles
+  bid_amount: number;
+  discount_fee_percentage: number;
+  status: 'PENDING' | 'ACCEPTED_BY_MSME' | 'REJECTED_BY_MSME' | 'WITHDRAWN_BY_FINANCIER';
+  created_at: string;
+  // Optional: for joining profile data
+  financier?: {
+    full_name: string | null;
+  } | null;
 }
 
 export interface Invoice {
@@ -49,6 +64,7 @@ export interface Invoice {
   msme?: { full_name: string | null }; // For joining MSME name on dashboard
   assigned_financier_id?: string | null;
   accepted_bid_id?: string | null;
+  bids?: FactoringBid[]; // For displaying bids on the invoice view page
 }
 
 export interface ClientHistoryOption {
@@ -56,13 +72,5 @@ export interface ClientHistoryOption {
   label: string;
 }
 
-export interface FactoringBid {
-  id: string;
-  invoice_id: string;
-  financier_id: string;
-  financier_name?: string; // For display
-  bid_amount: number;
-  discount_fee_percentage: number;
-  status: 'PENDING' | 'ACCEPTED_BY_MSME' | 'REJECTED_BY_MSME' | 'WITHDRAWN_BY_FINANCIER';
-  created_at: string;
-}
+// Note: InvoiceWithItems from actions.ts essentially becomes the main Invoice type now
+// as we are adding bids directly to it.

@@ -4,14 +4,14 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getInvoiceWithItemsById, type InvoiceWithItems, deleteInvoiceAction, requestInvoiceFactoringAction, acceptFactoringByBuyerAction, rejectFactoringByBuyerAction } from '@/app/(app)/invoices/actions';
-import { AlertTriangle, FileWarning, Edit, Trash2, TrendingUp, Send, CheckCircle, XCircle, ShieldCheck, ShieldX } from 'lucide-react';
+import { getInvoiceWithItemsById, type InvoiceWithItems, deleteInvoiceAction, requestInvoiceFactoringAction, acceptFactoringByBuyerAction, rejectFactoringByBuyerAction, placeFactoringBidAction, acceptFactoringBidAction } from '@/app/(app)/invoices/actions';
+import { AlertTriangle, FileWarning, Edit, Trash2, TrendingUp, Send, CheckCircle, XCircle, ShieldCheck, ShieldX, Handshake, Landmark } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { InvoiceStatusBadge } from '@/components/InvoiceStatusBadge';
 import { format } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
-import { InvoiceStatus, FactoringStatus } from '@/types/invoice';
+import { InvoiceStatus, FactoringStatus, type FactoringBid } from '@/types/invoice';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   AlertDialog,
@@ -26,8 +26,11 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/app/(app)/layout';
+import { UserRole } from '@/types/user';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { PlaceBidForm } from '@/components/factoring/PlaceBidForm';
+import { BidList } from '@/components/factoring/BidList';
 
 
 function formatCurrency(amount: number | null | undefined) {
@@ -39,9 +42,9 @@ function getFactoringStatusDisplayName(status: FactoringStatus | undefined | nul
   if (!status || status === FactoringStatus.NONE) return 'Not Requested';
   switch (status) {
     case FactoringStatus.REQUESTED: return 'Factoring Requested';
-    case FactoringStatus.BUYER_ACCEPTED: return 'Buyer Accepted';
+    case FactoringStatus.BUYER_ACCEPTED: return 'Buyer Accepted - Awaiting Bids';
     case FactoringStatus.BUYER_REJECTED: return 'Buyer Rejected';
-    case FactoringStatus.PENDING_FINANCING: return 'Pending Financing';
+    case FactoringStatus.PENDING_FINANCING: return 'Pending Financing - Bids Open';
     case FactoringStatus.FINANCED: return 'Financed';
     case FactoringStatus.REPAID: return 'Repaid to Financier';
     default: return status.replace(/_/g, ' ');
@@ -63,6 +66,7 @@ export default function ViewInvoicePage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isRequestingFactoring, setIsRequestingFactoring] = useState(false);
   const [isBuyerActionLoading, setIsBuyerActionLoading] = useState(false);
+  const [isAcceptingBid, setIsAcceptingBid] = useState<string | null>(null); // Stores ID of bid being accepted
 
   const fetchInvoiceData = async () => {
       if (!invoiceId) {
@@ -123,7 +127,7 @@ export default function ViewInvoicePage() {
   };
 
   const handleRequestFactoring = async () => {
-    if (!invoice || !user || profile?.role !== 'MSME' || invoice.user_id !== user.id) return;
+    if (!invoice || !user || profile?.role !== UserRole.MSME || invoice.user_id !== user.id) return;
     setIsRequestingFactoring(true);
     try {
       const result = await requestInvoiceFactoringAction(invoice.id);
@@ -132,7 +136,7 @@ export default function ViewInvoicePage() {
           title: 'Factoring Requested',
           description: `Invoice #${invoice.invoiceNumber} has been submitted for factoring. Buyer acceptance is pending.`,
         });
-        fetchInvoiceData(); // Re-fetch to update status
+        fetchInvoiceData(); 
       } else {
         toast({
           title: 'Error Requesting Factoring',
@@ -152,7 +156,7 @@ export default function ViewInvoicePage() {
   };
 
   const handleBuyerFactoringAction = async (actionType: 'accept' | 'reject') => {
-    if (!invoice || !user || profile?.role !== 'BUYER' || invoice.clientEmail !== user.email) return;
+    if (!invoice || !user || profile?.role !== UserRole.BUYER || invoice.clientEmail !== user.email) return;
     setIsBuyerActionLoading(true);
     try {
       const actionFn = actionType === 'accept' ? acceptFactoringByBuyerAction : rejectFactoringByBuyerAction;
@@ -162,7 +166,7 @@ export default function ViewInvoicePage() {
           title: `Factoring ${actionType === 'accept' ? 'Accepted' : 'Rejected'}`,
           description: `Factoring for invoice #${invoice.invoiceNumber} has been ${actionType === 'accept' ? 'accepted' : 'rejected'}.`,
         });
-        fetchInvoiceData(); // Re-fetch to update status
+        fetchInvoiceData(); 
       } else {
         toast({
           title: `Error ${actionType === 'accept' ? 'Accepting' : 'Rejecting'} Factoring`,
@@ -178,6 +182,64 @@ export default function ViewInvoicePage() {
       });
     } finally {
       setIsBuyerActionLoading(false);
+    }
+  };
+
+  const handlePlaceBid = async (bidAmount: number, discountFeePercentage: number) => {
+    if (!invoice || !user || profile?.role !== UserRole.FINANCIER) return false;
+    try {
+      const result = await placeFactoringBidAction(invoice.id, bidAmount, discountFeePercentage);
+      if (result.success) {
+        toast({
+          title: 'Bid Placed Successfully!',
+          description: `Your bid for invoice #${invoice.invoiceNumber} has been submitted.`,
+        });
+        fetchInvoiceData(); // Refresh data
+        return true;
+      } else {
+        toast({
+          title: 'Error Placing Bid',
+          description: result.error || 'Could not place bid for this invoice.',
+          variant: 'destructive',
+        });
+        return false;
+      }
+    } catch (err) {
+      toast({
+        title: 'Bid Placement Failed',
+        description: err instanceof Error ? err.message : 'An unexpected error occurred.',
+        variant: 'destructive',
+      });
+      return false;
+    }
+  };
+
+  const handleAcceptBid = async (bidId: string) => {
+    if (!invoice || !user || profile?.role !== UserRole.MSME || invoice.user_id !== user.id) return;
+    setIsAcceptingBid(bidId);
+    try {
+      const result = await acceptFactoringBidAction(invoice.id, bidId);
+      if (result.success) {
+        toast({
+          title: 'Bid Accepted!',
+          description: `You have accepted a bid for invoice #${invoice.invoiceNumber}. The invoice is now marked as Financed.`,
+        });
+        fetchInvoiceData(); // Refresh data
+      } else {
+        toast({
+          title: 'Error Accepting Bid',
+          description: result.error || 'Could not accept this bid.',
+          variant: 'destructive',
+        });
+      }
+    } catch (err) {
+      toast({
+        title: 'Bid Acceptance Failed',
+        description: err instanceof Error ? err.message : 'An unexpected error occurred.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsAcceptingBid(null);
     }
   };
 
@@ -234,14 +296,23 @@ export default function ViewInvoicePage() {
     );
   }
 
-  const isMSMEOwner = user && profile?.role === 'MSME' && invoice.user_id === user.id;
-  const isBuyerRecipient = user && profile?.role === 'BUYER' && invoice.clientEmail === user.email;
+  const isMSMEOwner = user && profile?.role === UserRole.MSME && invoice.user_id === user.id;
+  const isBuyerRecipient = user && profile?.role === UserRole.BUYER && invoice.clientEmail === user.email;
+  const isFinancier = user && profile?.role === UserRole.FINANCIER;
 
   const canRequestFactoring = isMSMEOwner &&
-                              (invoice.status === InvoiceStatus.SENT || invoice.status === InvoiceStatus.PAID) &&
+                              (invoice.status === InvoiceStatus.SENT || invoice.status === InvoiceStatus.OVERDUE) && // MSMEs can request for overdue as well
                               invoice.factoring_status === FactoringStatus.NONE;
 
   const canBuyerActOnFactoring = isBuyerRecipient && invoice.factoring_status === FactoringStatus.REQUESTED;
+  
+  const canFinancierBid = isFinancier && 
+                          (invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED || invoice.factoring_status === FactoringStatus.PENDING_FINANCING) &&
+                          invoice.status !== InvoiceStatus.PAID && invoice.status !== InvoiceStatus.VOID;
+
+  const canMSMEViewBids = isMSMEOwner && invoice.bids && invoice.bids.length > 0;
+  const canMSMEAcceptBids = canMSMEViewBids && (invoice.factoring_status === FactoringStatus.PENDING_FINANCING || invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED);
+
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -250,17 +321,20 @@ export default function ViewInvoicePage() {
             <h1 className="text-2xl font-semibold">Invoice {invoice.invoiceNumber}</h1>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <InvoiceStatusBadge status={invoice.status} />
-                {invoice.factoring_status !== FactoringStatus.NONE && (
+                {invoice.factoring_status && invoice.factoring_status !== FactoringStatus.NONE && (
                     <Badge variant={
-                        invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED ? "default" :
+                        invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED || invoice.factoring_status === FactoringStatus.PENDING_FINANCING ? "default" :
                         invoice.factoring_status === FactoringStatus.BUYER_REJECTED ? "destructive" :
+                        invoice.factoring_status === FactoringStatus.FINANCED ? "default" : // Using accent for financed
                         "secondary"
                        } className={cn("flex items-center gap-1.5", {
-                        "bg-green-500 text-white hover:bg-green-600": invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED,
+                        "bg-green-500 text-white hover:bg-green-600": invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED || invoice.factoring_status === FactoringStatus.PENDING_FINANCING,
+                        "bg-accent text-accent-foreground hover:bg-accent/90": invoice.factoring_status === FactoringStatus.FINANCED,
                        })}>
                          {invoice.factoring_status === FactoringStatus.REQUESTED && <TrendingUp className="h-3.5 w-3.5" /> }
-                         {invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED && <CheckCircle className="h-3.5 w-3.5" /> }
+                         {(invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED || invoice.factoring_status === FactoringStatus.PENDING_FINANCING) && <Handshake className="h-3.5 w-3.5" /> }
                          {invoice.factoring_status === FactoringStatus.BUYER_REJECTED && <XCircle className="h-3.5 w-3.5" /> }
+                         {invoice.factoring_status === FactoringStatus.FINANCED && <Landmark className="h-3.5 w-3.5" /> }
                          {getFactoringStatusDisplayName(invoice.factoring_status)}
                        </Badge>
                 )}
@@ -349,7 +423,7 @@ export default function ViewInvoicePage() {
         <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                    <h3 className="font-semibold text-muted-foreground">Client</h3>
+                    <h3 className="font-semibold text-muted-foreground">Client (Buyer)</h3>
                     <p>{invoice.clientName}</p>
                     <p>{invoice.clientEmail}</p>
                     <p className="whitespace-pre-wrap">{invoice.clientAddress}</p>
@@ -423,6 +497,42 @@ export default function ViewInvoicePage() {
             </div>
         </CardContent>
       </Card>
+
+      {/* Factoring Section */}
+      {canFinancierBid && (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Place Your Bid</CardTitle>
+            <CardDescription>Submit your bid for financing this invoice.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <PlaceBidForm invoiceId={invoice.id} invoiceAmount={invoice.totalAmount} onSubmitBid={handlePlaceBid} />
+          </CardContent>
+        </Card>
+      )}
+
+      {canMSMEViewBids && (
+         <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Factoring Bids Received</CardTitle>
+             <CardDescription>
+                {invoice.factoring_status === FactoringStatus.FINANCED 
+                    ? `This invoice has been financed. Accepted Bid ID: ${invoice.accepted_bid_id?.substring(0,8) || 'N/A'}`
+                    : "Review the bids below. You can accept one bid to proceed with financing."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <BidList 
+                bids={invoice.bids || []} 
+                onAcceptBid={handleAcceptBid} 
+                canAccept={canMSMEAcceptBids && invoice.factoring_status !== FactoringStatus.FINANCED}
+                isAcceptingBidId={isAcceptingBid}
+                acceptedBidId={invoice.accepted_bid_id}
+            />
+          </CardContent>
+        </Card>
+      )}
+
     </div>
   );
 }

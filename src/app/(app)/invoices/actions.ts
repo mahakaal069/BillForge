@@ -5,8 +5,9 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { InvoiceFormValues } from '@/components/invoice/InvoiceForm';
-import { InvoiceStatus, FactoringStatus, type Invoice, type InvoiceItem } from '@/types/invoice';
+import { InvoiceStatus, FactoringStatus, type Invoice, type InvoiceItem, type FactoringBid } from '@/types/invoice';
 import type { Profile } from '@/types/user';
+import { UserRole } from '@/types/user';
 
 export interface CreateInvoiceResult {
   success: boolean;
@@ -24,9 +25,9 @@ export async function createInvoiceAction(data: InvoiceFormValues, status: Invoi
 
   const { items, clientName, clientEmail, clientAddress, invoiceDate, dueDate, paymentTerms, notes, subtotal, taxAmount, totalAmount } = data;
 
-  const formattedInvoiceDate = invoiceDate ? invoiceDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+  const formattedInvoiceDate = invoiceDate ? new Date(invoiceDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
   const formattedDueDate = dueDate
-    ? dueDate.toISOString().split('T')[0]
+    ? new Date(dueDate).toISOString().split('T')[0]
     : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
 
@@ -91,6 +92,7 @@ export async function createInvoiceAction(data: InvoiceFormValues, status: Invoi
 
 export interface InvoiceWithItems extends Invoice {
   items: InvoiceItem[];
+  bids?: FactoringBid[];
 }
 
 export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithItems | null> {
@@ -108,7 +110,7 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
     .eq('id', user.id)
     .single();
 
-  const { data: invoiceData, error: invoiceError } = await supabase
+  let query = supabase
     .from('invoices')
     .select(`
       id,
@@ -129,19 +131,35 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
       user_id,
       created_at,
       updated_at,
+      accepted_bid_id,
+      assigned_financier_id,
       invoice_items (
         id,
         description,
         quantity,
         unit_price,
         total
+      ),
+      factoring_bids (
+        id,
+        invoice_id,
+        financier_id,
+        bid_amount,
+        discount_fee_percentage,
+        status,
+        created_at,
+        financier:profiles!factoring_bids_financier_id_fkey(full_name)
       )
     `)
     .eq('id', id)
-    .single();
+    .order('created_at', { foreignTable: 'factoring_bids', ascending: false });
+
+
+  const { data: invoiceData, error: invoiceError } = await query.single();
+
 
   if (invoiceError) {
-    console.error('Error fetching invoice by ID:', invoiceError.message);
+    console.error('Error fetching invoice by ID:', invoiceError.message, invoiceError);
     return null;
   }
 
@@ -152,14 +170,20 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
   // Authorization check:
   // MSME owner can view.
   // Buyer can view if their email matches client_email.
-  const isOwner = invoiceData.user_id === user.id;
-  const isBuyerRecipient = profile?.role === 'BUYER' && invoiceData.client_email === user.email;
+  // Financier can view if invoice is in a state relevant to them (e.g. BUYER_ACCEPTED or PENDING_FINANCING)
+  const isOwner = invoiceData.user_id === user.id && profile?.role === UserRole.MSME;
+  const isBuyerRecipient = profile?.role === UserRole.BUYER && invoiceData.client_email === user.email;
+  const isFinancierAndViewable = profile?.role === UserRole.FINANCIER &&
+    (invoiceData.factoring_status === FactoringStatus.BUYER_ACCEPTED ||
+     invoiceData.factoring_status === FactoringStatus.PENDING_FINANCING ||
+     invoiceData.factoring_status === FactoringStatus.FINANCED);
 
-  if (!isOwner && !isBuyerRecipient) {
-    console.error('User not authorized to view this invoice.');
+
+  if (!isOwner && !isBuyerRecipient && !isFinancierAndViewable) {
+    console.error('User not authorized to view this invoice or invoice not in viewable state for role.');
     return null;
   }
-
+  
   const invoice: InvoiceWithItems = {
     id: invoiceData.id,
     invoiceNumber: invoiceData.invoice_number,
@@ -184,6 +208,12 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
     user_id: invoiceData.user_id,
     is_factoring_requested: invoiceData.is_factoring_requested,
     factoring_status: invoiceData.factoring_status as FactoringStatus,
+    accepted_bid_id: invoiceData.accepted_bid_id,
+    assigned_financier_id: invoiceData.assigned_financier_id,
+    bids: (invoiceData.factoring_bids || []).map((bid: any) => ({
+        ...bid,
+        financier_name: bid.financier?.full_name || 'Unknown Financier',
+    })),
     created_at: invoiceData.created_at,
     updated_at: invoiceData.updated_at,
   };
@@ -216,9 +246,9 @@ export async function updateInvoiceAction(invoiceId: string, data: InvoiceFormVa
 
   const { items, clientName, clientEmail, clientAddress, invoiceDate, dueDate, paymentTerms, notes, subtotal, taxAmount, totalAmount } = data;
 
-  const formattedInvoiceDate = invoiceDate ? invoiceDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+  const formattedInvoiceDate = invoiceDate ? new Date(invoiceDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
   const formattedDueDate = dueDate
-    ? dueDate.toISOString().split('T')[0]
+    ? new Date(dueDate).toISOString().split('T')[0]
     : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   const invoiceToUpdate = {
@@ -336,7 +366,7 @@ export async function requestInvoiceFactoringAction(invoiceId: string): Promise<
     .eq('id', user.id)
     .single();
 
-  if (profile?.role !== 'MSME') {
+  if (profile?.role !== UserRole.MSME) {
     return { success: false, error: 'Only MSME users can request factoring.' };
   }
 
@@ -388,7 +418,7 @@ export async function acceptFactoringByBuyerAction(invoiceId: string): Promise<{
   }
 
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-  if (profile?.role !== 'BUYER') {
+  if (profile?.role !== UserRole.BUYER) {
     return { success: false, error: 'Only Buyers can accept factoring requests.' };
   }
 
@@ -442,7 +472,7 @@ export async function rejectFactoringByBuyerAction(invoiceId: string): Promise<{
   }
 
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-  if (profile?.role !== 'BUYER') {
+  if (profile?.role !== UserRole.BUYER) {
     return { success: false, error: 'Only Buyers can reject factoring requests.' };
   }
 
@@ -476,6 +506,163 @@ export async function rejectFactoringByBuyerAction(invoiceId: string): Promise<{
     console.error('Error rejecting factoring:', updateError);
     return { success: false, error: 'Failed to reject factoring for the invoice.' };
   }
+
+  revalidatePath(`/invoices/${invoiceId}/view`);
+  revalidatePath('/dashboard');
+  return { success: true };
+}
+
+// Action for Financier to place a bid
+export async function placeFactoringBidAction(
+  invoiceId: string,
+  bidAmount: number,
+  discountFeePercentage: number
+): Promise<{ success: boolean; error?: string; bidId?: string }> {
+  const supabase = createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) return { success: false, error: 'User not authenticated.' };
+
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+  if (profile?.role !== UserRole.FINANCIER) {
+    return { success: false, error: 'Only Financiers can place bids.' };
+  }
+
+  const { data: invoice, error: fetchError } = await supabase
+    .from('invoices')
+    .select('id, status, factoring_status, total_amount')
+    .eq('id', invoiceId)
+    .single();
+
+  if (fetchError || !invoice) return { success: false, error: 'Invoice not found.' };
+
+  if (invoice.factoring_status !== FactoringStatus.BUYER_ACCEPTED && invoice.factoring_status !== FactoringStatus.PENDING_FINANCING) {
+    return { success: false, error: 'Invoice is not open for bidding.' };
+  }
+  if (invoice.status === InvoiceStatus.PAID || invoice.status === InvoiceStatus.VOID) {
+    return { success: false, error: 'Cannot bid on paid or void invoices.'}
+  }
+  if (bidAmount <= 0 || bidAmount > invoice.total_amount) {
+    return { success: false, error: 'Invalid bid amount.'}
+  }
+  if (discountFeePercentage <=0 || discountFeePercentage >= 100) {
+    return { success: false, error: 'Invalid discount fee percentage.'}
+  }
+
+
+  const { data: newBid, error: bidInsertError } = await supabase
+    .from('factoring_bids')
+    .insert({
+      invoice_id: invoiceId,
+      financier_id: user.id,
+      bid_amount: bidAmount,
+      discount_fee_percentage: discountFeePercentage,
+      status: 'PENDING',
+    })
+    .select('id')
+    .single();
+
+  if (bidInsertError || !newBid) {
+    console.error('Error inserting bid:', bidInsertError);
+    return { success: false, error: 'Failed to place bid.' };
+  }
+
+  // If this is the first bid, update invoice status to PENDING_FINANCING
+  if (invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED) {
+    const { error: updateInvoiceError } = await supabase
+      .from('invoices')
+      .update({ factoring_status: FactoringStatus.PENDING_FINANCING, updated_at: new Date().toISOString() })
+      .eq('id', invoiceId);
+
+    if (updateInvoiceError) {
+      console.warn('Failed to update invoice status to PENDING_FINANCING after first bid:', updateInvoiceError);
+      // Not returning error here as bid was placed, but logging warning.
+    }
+  }
+
+  revalidatePath(`/invoices/${invoiceId}/view`);
+  revalidatePath('/dashboard'); // Financiers might see this on their dashboard
+  return { success: true, bidId: newBid.id };
+}
+
+// Action for MSME to accept a bid
+export async function acceptFactoringBidAction(
+  invoiceId: string,
+  bidId: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) return { success: false, error: 'User not authenticated.' };
+
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+  if (profile?.role !== UserRole.MSME) {
+    return { success: false, error: 'Only MSME owners can accept bids.' };
+  }
+
+  const { data: invoice, error: fetchInvoiceError } = await supabase
+    .from('invoices')
+    .select('id, user_id, factoring_status')
+    .eq('id', invoiceId)
+    .single();
+
+  if (fetchInvoiceError || !invoice) return { success: false, error: 'Invoice not found.' };
+  if (invoice.user_id !== user.id) return { success: false, error: 'You do not own this invoice.' };
+  if (invoice.factoring_status !== FactoringStatus.PENDING_FINANCING && invoice.factoring_status !== FactoringStatus.BUYER_ACCEPTED) {
+    return { success: false, error: 'Invoice is not in a state to accept bids.' };
+  }
+
+  const { data: bid, error: fetchBidError } = await supabase
+    .from('factoring_bids')
+    .select('id, financier_id, status')
+    .eq('id', bidId)
+    .eq('invoice_id', invoiceId)
+    .single();
+
+  if (fetchBidError || !bid) return { success: false, error: 'Bid not found.' };
+  if (bid.status !== 'PENDING') return { success: false, error: 'This bid is not pending.' };
+
+  // Transaction to update bid and invoice
+  // Note: True transactions are complex with Supabase serverless functions.
+  // Here, we do sequential updates. If one fails, the state might be inconsistent.
+  // For production, consider a Supabase Edge Function for atomicity.
+
+  const { error: updateBidError } = await supabase
+    .from('factoring_bids')
+    .update({ status: 'ACCEPTED_BY_MSME', updated_at: new Date().toISOString() })
+    .eq('id', bidId);
+
+  if (updateBidError) {
+    console.error('Error updating bid status:', updateBidError);
+    return { success: false, error: 'Failed to update bid status.' };
+  }
+
+  const { error: updateInvoiceError } = await supabase
+    .from('invoices')
+    .update({
+      factoring_status: FactoringStatus.FINANCED,
+      assigned_financier_id: bid.financier_id,
+      accepted_bid_id: bid.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', invoiceId);
+
+  if (updateInvoiceError) {
+    console.error('Error updating invoice status to FINANCED:', updateInvoiceError);
+    // Attempt to roll back bid status update if invoice update fails (best effort)
+    await supabase.from('factoring_bids').update({ status: 'PENDING' }).eq('id', bidId);
+    return { success: false, error: 'Failed to update invoice to financed state.' };
+  }
+  
+  // Optional: Mark other pending bids for this invoice as 'REJECTED_BY_MSME' or 'SUPERSEDED'
+  // This is important for a clean system.
+  await supabase
+    .from('factoring_bids')
+    .update({ status: 'REJECTED_BY_MSME', updated_at: new Date().toISOString() })
+    .eq('invoice_id', invoiceId)
+    .neq('id', bidId) // Don't update the accepted bid
+    .eq('status', 'PENDING');
+
 
   revalidatePath(`/invoices/${invoiceId}/view`);
   revalidatePath('/dashboard');
