@@ -112,6 +112,7 @@ export default async function DashboardPage() {
       .order('created_at', { ascending: false });
   } else {
     // No role or buyer without email, show empty or error
+    console.warn(`Dashboard: User ${user.id} has role '${profile.role}' and email '${user.email}', which doesn't match MSME or BUYER with email for invoice fetching. Returning empty set.`);
     invoicesQuery = supabase.from('invoices').select('*').limit(0); // Empty query
   }
 
@@ -120,13 +121,17 @@ export default async function DashboardPage() {
 
 
   if (invoicesError) {
-    console.error('Error fetching invoices:', invoicesError);
+    // Enhanced logging for invoicesError
+    const errorMessage = (invoicesError as any).message || 'No specific error message. Error object might be empty or not an instance of Error.';
+    const userContext = `User ID: ${user.id}, Role: ${profile.role}, Email for query (if buyer): ${profile.role === 'BUYER' ? user.email : 'N/A'}.`;
+    console.error(`Error fetching invoices: ${errorMessage}. ${userContext}. Raw error object:`, invoicesError);
+    
     return (
         <div className="flex flex-col items-center justify-center h-full">
             <AlertTriangle className="w-12 h-12 text-destructive mb-4" />
             <h2 className="text-xl font-semibold mb-2">Error Fetching Invoices</h2>
             <p className="text-muted-foreground">Could not load your invoice data. Please try again later.</p>
-            <p className="text-xs text-muted-foreground mt-2">{invoicesError.message}</p>
+            <p className="text-xs text-muted-foreground mt-2">Details: {errorMessage}</p>
         </div>
     );
   }
@@ -326,3 +331,5 @@ export default async function DashboardPage() {
     </div>
   );
 }
+
+    
