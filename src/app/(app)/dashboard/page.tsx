@@ -92,8 +92,6 @@ export default async function DashboardPage() {
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
   } else if (profile.role === 'BUYER' && user.email) {
-     // For buyers, client_name is their name. They might want to see MSME name.
-     // We can add a join to profiles table later if needed.
     invoicesQuery = supabase
       .from('invoices')
       .select(`
@@ -106,7 +104,7 @@ export default async function DashboardPage() {
         is_factoring_requested,
         factoring_status,
         created_at,
-        msme:profiles!invoices_user_id_fkey(full_name) 
+        msme:profiles!user_id(full_name)
       `)
       .eq('client_email', user.email)
       .order('created_at', { ascending: false });
