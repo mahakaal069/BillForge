@@ -105,14 +105,14 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
     return null;
   }
 
-  const { data: profile, error: profileError } = await supabase
+  const { data: profileData, error: profileError } = await supabase
     .from('profiles')
     .select('role')
     .eq('id', user.id)
     .single();
 
-  if (profileError || !profile) {
-    console.error(`[getInvoiceWithItemsById] Error fetching profile for user ${user.id}. ProfileError:`, profileError, "ProfileData:", profile);
+  if (profileError || !profileData) {
+    console.error(`[getInvoiceWithItemsById] Error fetching profile for user ${user.id}. ProfileError:`, profileError, "ProfileData:", profileData);
     return null; // Cannot determine role, so cannot authorize.
   }
   
@@ -155,7 +155,7 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
         discount_fee_percentage,
         status,
         created_at,
-        financier:profiles!factoring_bids_financier_id_fkey(full_name)
+        financier:profiles!financier_id(full_name)
       )
     `)
     .eq('id', id)
@@ -164,20 +164,20 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
 
 
   if (invoiceError) {
-    console.error(`[getInvoiceWithItemsById] Supabase error fetching invoice by ID ${id}. User: ${user.id}, Role: ${profile.role}. Error:`, invoiceError.message, invoiceError);
+    console.error(`[getInvoiceWithItemsById] Supabase error fetching invoice by ID ${id}. User: ${user.id}, Role: ${profileData.role}. Error:`, invoiceError.message, invoiceError);
     return null;
   }
 
   if (!invoiceData) {
-    console.warn(`[getInvoiceWithItemsById] Invoice not found OR RLS blocked access for invoice ID ${id}. User: ${user.id} (Role: ${profile.role}). This could be due to RLS policies on 'invoices', 'invoice_items', 'factoring_bids', or the related 'profiles' table (for financier names). Please check RLS policies on all these tables for the user's role.`);
+    console.warn(`[getInvoiceWithItemsById] Invoice not found OR RLS blocked access for invoice ID ${id}. User: ${user.id} (Role: ${profileData.role}). This could be due to RLS policies on 'invoices', 'invoice_items', 'factoring_bids', or the related 'profiles' table (for financier names due to the 'financier:profiles!financier_id(full_name)' join). Please check RLS policies on all these tables for the user's role. Specifically, ensure the user's role has SELECT permission on 'public.profiles' to retrieve financier names.`);
     return null;
   }
 
   // Authorization check (JavaScript layer, RLS is primary)
-  const isOwner = invoiceData.user_id === user.id && profile.role === UserRole.MSME;
+  const isOwner = invoiceData.user_id === user.id && profileData.role === UserRole.MSME;
   
   let isBuyerRecipient = false;
-  if (profile.role === UserRole.BUYER) {
+  if (profileData.role === UserRole.BUYER) {
     if (!user.email) {
       console.warn(`[getInvoiceWithItemsById Auth Check - Buyer] User ${user.id} has no email. Cannot verify recipient status.`);
     } else if (!invoiceData.client_email) {
@@ -189,18 +189,18 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
     }
   }
 
-  const isFinancierAndViewable = profile.role === UserRole.FINANCIER &&
+  const isFinancierAndViewable = profileData.role === UserRole.FINANCIER &&
     (invoiceData.factoring_status === FactoringStatus.BUYER_ACCEPTED ||
      invoiceData.factoring_status === FactoringStatus.PENDING_FINANCING ||
      invoiceData.factoring_status === FactoringStatus.FINANCED);
 
-  console.log(`[getInvoiceWithItemsById Auth Check for Invoice ${invoiceData.id}] User ID: ${user.id}, User Email: ${user.email}, User Profile Role: ${profile.role}`);
+  console.log(`[getInvoiceWithItemsById Auth Check for Invoice ${invoiceData.id}] User ID: ${user.id}, User Email: ${user.email}, User Profile Role: ${profileData.role}`);
   console.log(`[getInvoiceWithItemsById Auth Check for Invoice ${invoiceData.id}] Invoice Client Email: ${invoiceData.client_email}, Invoice User (MSME) ID: ${invoiceData.user_id}`);
   console.log(`[getInvoiceWithItemsById Auth Check for Invoice ${invoiceData.id}] Calculated Permissions - isOwner: ${isOwner}, isBuyerRecipient: ${isBuyerRecipient}, isFinancierAndViewable: ${isFinancierAndViewable}`);
 
 
   if (!isOwner && !isBuyerRecipient && !isFinancierAndViewable) {
-    console.warn(`[getInvoiceWithItemsById JS Auth Failed] User ${user.id} (Role: ${profile.role}) not authorized by JS logic to view invoice ${invoiceData.id}. RLS should be the primary gatekeeper if data was fetched. If invoiceData was null, RLS likely blocked the DB query.`);
+    console.warn(`[getInvoiceWithItemsById JS Auth Failed] User ${user.id} (Role: ${profileData.role}) not authorized by JS logic to view invoice ${invoiceData.id}. RLS should be the primary gatekeeper if data was fetched. If invoiceData was null, RLS likely blocked the DB query.`);
     return null;
   }
   
@@ -231,8 +231,15 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
     accepted_bid_id: invoiceData.accepted_bid_id,
     assigned_financier_id: invoiceData.assigned_financier_id,
     bids: (invoiceData.factoring_bids || []).map((bid: any) => ({
-        ...bid,
-        financier_name: bid.financier?.full_name || 'Unknown Financier',
+        id: bid.id,
+        invoice_id: bid.invoice_id,
+        financier_id: bid.financier_id,
+        bid_amount: bid.bid_amount,
+        discount_fee_percentage: bid.discount_fee_percentage,
+        status: bid.status as FactoringBid['status'],
+        created_at: bid.created_at,
+        financier_name: bid.financier?.full_name || 'Unknown Financier', 
+        financier: bid.financier // Keep the raw financier object if needed elsewhere
     })),
     created_at: invoiceData.created_at,
     updated_at: invoiceData.updated_at,
