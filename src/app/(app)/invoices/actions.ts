@@ -116,7 +116,7 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
     return null; 
   }
   
-  console.log(`[getInvoiceWithItemsById START] For User ID: ${user.id}, Role: ${profileData.role}, Attempting to fetch Invoice ID: ${id}`);
+  console.log(`[getInvoiceWithItemsById START] User ID: ${user.id}, Role: ${profileData.role}, Attempting to fetch Invoice ID: ${id}`);
 
   // Fetch the invoice and its items and bids
   const { data: invoiceData, error: invoiceError } = await supabase
@@ -164,19 +164,26 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
     .single();
 
   if (invoiceError) {
-    console.error(`[getInvoiceWithItemsById] Supabase error fetching invoice by ID ${id}. User: ${user.id}, Role: ${profileData.role}. Error Message:`, invoiceError.message, "Full Error Object:", invoiceError);
+    console.error(`[getInvoiceWithItemsById DB QUERY ERROR] For Invoice ID ${id}, User: ${user.id}. Supabase error:`, invoiceError);
     return null;
   }
 
   if (!invoiceData) {
-    console.warn(`[getInvoiceWithItemsById] Invoice data NOT FOUND (null) from DB query for invoice ID ${id}. User: ${user.id} (Role: ${profileData.role}). This likely means RLS on 'invoices', 'invoice_items', or 'factoring_bids' blocked the read for this user, OR the invoice ID is incorrect/does not exist.`);
+    console.warn(`[getInvoiceWithItemsById INVOICE DATA NULL POST-QUERY] For Invoice ID ${id}, User: ${user.id}, Role: ${profileData.role}.`);
+    console.warn(`IMPORTANT: This usually means Row Level Security (RLS) policies are blocking the read access for this user.`);
+    console.warn(`Please verify the following RLS policies in your Supabase project for the user's role (${profileData.role}):`);
+    console.warn(`  1. On 'public.invoices': Can the user SELECT the invoice with id '${id}'?`);
+    console.warn(`     - If MSME: Does policy allow SELECT if 'user_id' == auth.uid() ('${user.id}')?`);
+    console.warn(`     - If BUYER: Does policy allow SELECT if 'client_email' == auth.email() and role is BUYER?`);
+    console.warn(`     - If FINANCIER: Does policy allow SELECT if 'factoring_status' is appropriate and role is FINANCIER?`);
+    console.warn(`  2. On 'public.invoice_items': Can the user SELECT items for invoice '${id}' based on their role and relationship to the invoice?`);
+    console.warn(`  3. On 'public.factoring_bids': Can the user SELECT bids for invoice '${id}' based on their role? (MSME should see their bids, Buyer might see bids, Financier their own).`);
+    console.warn(`Also, double-check that an invoice with ID '${id}' actually exists.`);
     return null;
   }
   
   console.log(`[getInvoiceWithItemsById] Fetched raw invoiceData from DB (first 500 chars):`, JSON.stringify(invoiceData).substring(0, 500));
 
-
-  // Authorization check (JavaScript layer, RLS is primary)
   const isOwner = invoiceData.user_id === user.id && profileData.role === UserRole.MSME;
   
   let isBuyerRecipient = false;
@@ -190,7 +197,6 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
      invoiceData.factoring_status === FactoringStatus.FINANCED);
 
   console.log(`[getInvoiceWithItemsById Auth Check for Invoice ${invoiceData.id}] User: ${user.id}, Role: ${profileData.role}, Invoice Owner ID: ${invoiceData.user_id}, Invoice Client Email: ${invoiceData.client_email}. Calculated Permissions - isOwner: ${isOwner}, isBuyerRecipient: ${isBuyerRecipient}, isFinancierAndViewable: ${isFinancierAndViewable}`);
-
 
   if (!isOwner && !isBuyerRecipient && !isFinancierAndViewable) {
     console.warn(`[getInvoiceWithItemsById JS Auth FAILED] User ${user.id} (Role: ${profileData.role}) not authorized by JS logic to view invoice ${invoiceData.id}.`);
@@ -233,7 +239,7 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
         discount_fee_percentage: bid.discount_fee_percentage,
         status: bid.status as FactoringBid['status'],
         created_at: bid.created_at,
-        financier_name: `Financier (ID: ${bid.financier_id.substring(0, 8)})`, // Placeholder, will need a join to profiles later
+        // financier_name: bid.profiles ? bid.profiles.full_name : `Financier (ID: ${bid.financier_id.substring(0, 8)})`,
     })),
     created_at: invoiceData.created_at,
     updated_at: invoiceData.updated_at,
@@ -722,3 +728,32 @@ export async function acceptFactoringBidAction(
   return { success: true };
 }
 
+// Ensure you have the RLS policies for 'public.profiles' that allow authenticated users to view profile data.
+// Example:
+// CREATE POLICY "Authenticated users can view profiles."
+//   ON public.profiles FOR SELECT
+//   USING ( auth.role() = 'authenticated' );
+
+// And that Financiers can view invoices relevant for factoring.
+// Example:
+// CREATE POLICY "Financiers can view relevant factoring invoices"
+//  ON public.invoices FOR SELECT
+//  USING (
+//    factoring_status IN ('BUYER_ACCEPTED', 'PENDING_FINANCING')
+//    AND EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'FINANCIER')
+//  );
+//
+// CREATE POLICY "Financiers can view items for relevant factoring invoices"
+//  ON public.invoice_items FOR SELECT
+//  USING (
+//    EXISTS (
+//      SELECT 1
+//      FROM public.invoices inv
+//      WHERE inv.id = invoice_items.invoice_id
+//      AND inv.factoring_status IN ('BUYER_ACCEPTED', 'PENDING_FINANCING')
+//      AND EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'FINANCIER')
+//    )
+//  );
+
+// Also, ensure `handle_new_user` trigger and `profiles` table are correctly set up to store user roles.
+// And that `auth.users` and `profiles` tables are linked, and `invoices.user_id` references `auth.users(id)`.
