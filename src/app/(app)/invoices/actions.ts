@@ -154,8 +154,7 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
         bid_amount,
         discount_fee_percentage,
         status,
-        created_at,
-        financier:profiles!financier_id(full_name)
+        created_at
       )
     `)
     .eq('id', id)
@@ -169,7 +168,7 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
   }
 
   if (!invoiceData) {
-    console.warn(`[getInvoiceWithItemsById] Invoice not found OR RLS blocked access for invoice ID ${id}. User: ${user.id} (Role: ${profileData.role}). This could be due to RLS policies on 'invoices', 'invoice_items', 'factoring_bids', or the related 'profiles' table (for financier names due to the 'financier:profiles!financier_id(full_name)' join). Please check RLS policies on all these tables for the user's role. Specifically, ensure the user's role has SELECT permission on 'public.profiles' to retrieve financier names.`);
+    console.warn(`[getInvoiceWithItemsById] Invoice not found OR RLS blocked access for invoice ID ${id}. User: ${user.id} (Role: ${profileData.role}). This could be due to RLS policies on 'invoices', 'invoice_items', or 'factoring_bids'. The join for financier names was temporarily removed for debugging. Please check RLS policies on all these tables for the user's role.`);
     return null;
   }
 
@@ -178,14 +177,13 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
   
   let isBuyerRecipient = false;
   if (profileData.role === UserRole.BUYER) {
-    if (!user.email) {
-      console.warn(`[getInvoiceWithItemsById Auth Check - Buyer] User ${user.id} has no email. Cannot verify recipient status.`);
-    } else if (!invoiceData.client_email) {
-      console.warn(`[getInvoiceWithItemsById Auth Check - Buyer] Invoice ${invoiceData.id} has no client_email. Cannot verify recipient status for buyer ${user.id}.`);
-    } else if (invoiceData.client_email.toLowerCase() === user.email.toLowerCase()) {
+    console.log(`[getInvoiceWithItemsById Auth Check - Buyer] User ID: ${user.id}, User Email: ${user.email}, Profile Role: ${profileData.role}`);
+    console.log(`[getInvoiceWithItemsById Auth Check - Buyer] Invoice ID: ${invoiceData.id}, Invoice Client Email: ${invoiceData.client_email}`);
+    if (user.email && invoiceData.client_email && invoiceData.client_email.toLowerCase() === user.email.toLowerCase()) {
       isBuyerRecipient = true;
+      console.log(`[getInvoiceWithItemsById Auth Check - Buyer] Buyer IS recipient for invoice ${invoiceData.id}.`);
     } else {
-      console.warn(`[getInvoiceWithItemsById Auth Check - Buyer] Email mismatch: Invoice client_email ('${invoiceData.client_email.toLowerCase()}') vs User email ('${user.email.toLowerCase()}') for invoice ${invoiceData.id}, user ${user.id}.`);
+      console.warn(`[getInvoiceWithItemsById Auth Check - Buyer] Email mismatch or missing email for invoice ${invoiceData.id}, user ${user.id}. Invoice Client Email: '${invoiceData.client_email}', User Email: '${user.email}'.`);
     }
   }
 
@@ -194,8 +192,6 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
      invoiceData.factoring_status === FactoringStatus.PENDING_FINANCING ||
      invoiceData.factoring_status === FactoringStatus.FINANCED);
 
-  console.log(`[getInvoiceWithItemsById Auth Check for Invoice ${invoiceData.id}] User ID: ${user.id}, User Email: ${user.email}, User Profile Role: ${profileData.role}`);
-  console.log(`[getInvoiceWithItemsById Auth Check for Invoice ${invoiceData.id}] Invoice Client Email: ${invoiceData.client_email}, Invoice User (MSME) ID: ${invoiceData.user_id}`);
   console.log(`[getInvoiceWithItemsById Auth Check for Invoice ${invoiceData.id}] Calculated Permissions - isOwner: ${isOwner}, isBuyerRecipient: ${isBuyerRecipient}, isFinancierAndViewable: ${isFinancierAndViewable}`);
 
 
@@ -238,8 +234,7 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
         discount_fee_percentage: bid.discount_fee_percentage,
         status: bid.status as FactoringBid['status'],
         created_at: bid.created_at,
-        financier_name: bid.financier?.full_name || 'Unknown Financier', 
-        financier: bid.financier // Keep the raw financier object if needed elsewhere
+        financier_name: `Financier (ID: ${bid.financier_id.substring(0, 8)})`, // Placeholder
     })),
     created_at: invoiceData.created_at,
     updated_at: invoiceData.updated_at,
@@ -384,13 +379,20 @@ export async function deleteInvoiceAction(invoiceId: string): Promise<{ success:
     .from('invoices')
     .select('id, user_id, factoring_status') 
     .eq('id', invoiceId)
-    .eq('user_id', user.id) 
+    // .eq('user_id', user.id) // MSME owner check, for buyers this needs to be different or handled by RLS
     .single();
 
   if (fetchError || !invoice) {
-    console.error('Error fetching invoice for deletion or invoice not found/not owned by user:', fetchError);
-    return { success: false, error: 'Invoice not found or you do not have permission to delete it.' };
+    console.error('Error fetching invoice for deletion or invoice not found:', fetchError);
+    return { success: false, error: 'Invoice not found or you do not have permission for this action on it.' };
   }
+
+  // Check if user is MSME owner - only MSME owner should be able to delete
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+  if (profile?.role !== UserRole.MSME || invoice.user_id !== user.id) {
+      return { success: false, error: 'Only the MSME owner can delete this invoice.' };
+  }
+
 
   const { error: deleteBidsError } = await supabase
     .from('factoring_bids')
