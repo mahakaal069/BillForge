@@ -1,5 +1,4 @@
 
-
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -69,10 +68,10 @@ export default async function DashboardPage() {
 
 
   let invoicesQuery;
-  // IMPORTANT: Replace 'invoices_user_id_fkey' with the actual name of the foreign key constraint
-  // on your 'invoices.user_id' column that references 'auth.users(id)' if this doesn't work.
-  // You can find this name by inspecting your 'invoices' table schema in the Supabase dashboard or SQL editor.
-  const msmeProfileJoinSyntax = 'profiles!invoices_user_id_fkey(full_name)';
+  // This syntax tells Supabase:
+  // "For the 'profiles' table, use the 'user_id' column from the current 'invoices' table
+  // to match against the primary key of 'profiles' (which is 'id'). Then, retrieve 'full_name'."
+  const msmeProfileJoinSyntax = 'profiles!user_id(full_name)';
 
 
   if (profile.role === UserRole.MSME) {
@@ -104,7 +103,7 @@ export default async function DashboardPage() {
         is_factoring_requested,
         factoring_status,
         created_at,
-        ${msmeProfileJoinSyntax} 
+        ${msmeProfileJoinSyntax}
       `)
       .eq('client_email', user.email)
       .order('created_at', { ascending: false });
@@ -114,7 +113,7 @@ export default async function DashboardPage() {
       .select(`
         id,
         invoice_number,
-        client_name, 
+        client_name,
         total_amount,
         due_date,
         status,
@@ -373,3 +372,5 @@ export default async function DashboardPage() {
     </div>
   );
 }
+
+    
