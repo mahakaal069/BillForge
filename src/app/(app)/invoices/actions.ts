@@ -165,12 +165,11 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
 
   if (invoiceError) {
     console.error(`[getInvoiceWithItemsById] Supabase error fetching invoice by ID ${id}. User: ${user.id}, Role: ${profile.role}. Error:`, invoiceError.message, invoiceError);
-    // This could be due to RLS policies on 'invoices' or 'invoice_items' or 'factoring_bids' table.
     return null;
   }
 
   if (!invoiceData) {
-    console.warn(`[getInvoiceWithItemsById] Invoice not found with ID ${id} for user ${user.id} (Role: ${profile.role}). This might be due to RLS policies on 'invoices', 'invoice_items', or the invoice genuinely not existing.`);
+    console.warn(`[getInvoiceWithItemsById] Invoice not found OR RLS blocked access for invoice ID ${id}. User: ${user.id} (Role: ${profile.role}). This could be due to RLS policies on 'invoices', 'invoice_items', 'factoring_bids', or the related 'profiles' table (for financier names). Please check RLS policies on all these tables for the user's role.`);
     return null;
   }
 
@@ -180,11 +179,13 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
   let isBuyerRecipient = false;
   if (profile.role === UserRole.BUYER) {
     if (!user.email) {
-      console.warn(`[getInvoiceWithItemsById Auth Check] Buyer user ${user.id} has no email. Cannot verify recipient status.`);
+      console.warn(`[getInvoiceWithItemsById Auth Check - Buyer] User ${user.id} has no email. Cannot verify recipient status.`);
     } else if (!invoiceData.client_email) {
-      console.warn(`[getInvoiceWithItemsById Auth Check] Invoice ${invoiceData.id} has no client_email. Cannot verify recipient status for buyer ${user.id}.`);
+      console.warn(`[getInvoiceWithItemsById Auth Check - Buyer] Invoice ${invoiceData.id} has no client_email. Cannot verify recipient status for buyer ${user.id}.`);
     } else if (invoiceData.client_email.toLowerCase() === user.email.toLowerCase()) {
       isBuyerRecipient = true;
+    } else {
+      console.warn(`[getInvoiceWithItemsById Auth Check - Buyer] Email mismatch: Invoice client_email ('${invoiceData.client_email.toLowerCase()}') vs User email ('${user.email.toLowerCase()}') for invoice ${invoiceData.id}, user ${user.id}.`);
     }
   }
 
@@ -193,14 +194,13 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
      invoiceData.factoring_status === FactoringStatus.PENDING_FINANCING ||
      invoiceData.factoring_status === FactoringStatus.FINANCED);
 
-  console.log(`[getInvoiceWithItemsById Auth Check] User ID: ${user.id}, User Email: ${user.email}, User Profile Role: ${profile.role}`);
-  console.log(`[getInvoiceWithItemsById Auth Check] Invoice ID: ${invoiceData.id}, Invoice Client Email: ${invoiceData.client_email}, Invoice User (MSME) ID: ${invoiceData.user_id}`);
-  console.log(`[getInvoiceWithItemsById Auth Check] isOwner: ${isOwner}`);
-  console.log(`[getInvoiceWithItemsById Auth Check] isBuyerRecipient: ${isBuyerRecipient} (Comparing '${invoiceData.client_email?.toLowerCase()}' with '${user.email?.toLowerCase()}')`);
-  console.log(`[getInvoiceWithItemsById Auth Check] isFinancierAndViewable: ${isFinancierAndViewable}`);
+  console.log(`[getInvoiceWithItemsById Auth Check for Invoice ${invoiceData.id}] User ID: ${user.id}, User Email: ${user.email}, User Profile Role: ${profile.role}`);
+  console.log(`[getInvoiceWithItemsById Auth Check for Invoice ${invoiceData.id}] Invoice Client Email: ${invoiceData.client_email}, Invoice User (MSME) ID: ${invoiceData.user_id}`);
+  console.log(`[getInvoiceWithItemsById Auth Check for Invoice ${invoiceData.id}] Calculated Permissions - isOwner: ${isOwner}, isBuyerRecipient: ${isBuyerRecipient}, isFinancierAndViewable: ${isFinancierAndViewable}`);
+
 
   if (!isOwner && !isBuyerRecipient && !isFinancierAndViewable) {
-    console.warn(`[getInvoiceWithItemsById] User ${user.id} (Role: ${profile.role}) not authorized by JS logic to view invoice ${invoiceData.id}. RLS should be the primary gatekeeper.`);
+    console.warn(`[getInvoiceWithItemsById JS Auth Failed] User ${user.id} (Role: ${profile.role}) not authorized by JS logic to view invoice ${invoiceData.id}. RLS should be the primary gatekeeper if data was fetched. If invoiceData was null, RLS likely blocked the DB query.`);
     return null;
   }
   
