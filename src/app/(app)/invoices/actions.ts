@@ -99,9 +99,9 @@ export interface InvoiceWithItems extends Invoice {
 export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithItems | null> {
   const supabase = createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
-
+  
   if (!user) {
-    console.error('[getInvoiceWithItemsById] User not authenticated.');
+    console.error('[getInvoiceWithItemsById] User not authenticated. Aborting fetch.');
     return null;
   }
 
@@ -112,10 +112,12 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
     .single();
 
   if (profileError || !profileData) {
-    console.error(`[getInvoiceWithItemsById] Error fetching profile for user ${user.id}. ProfileError:`, profileError, "ProfileData:", profileData);
-    return null; // Cannot determine role, so cannot authorize.
+    console.error(`[getInvoiceWithItemsById] Error fetching profile for user ${user.id}. ProfileError:`, profileError, "ProfileData:", profileData, "Aborting fetch.");
+    return null; 
   }
   
+  console.log(`[getInvoiceWithItemsById START] For User ID: ${user.id}, Role: ${profileData.role}, Attempting to fetch Invoice ID: ${id}`);
+
   // Fetch the invoice and its items and bids
   const { data: invoiceData, error: invoiceError } = await supabase
     .from('invoices')
@@ -161,30 +163,25 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
     .order('created_at', { foreignTable: 'factoring_bids', ascending: false })
     .single();
 
-
   if (invoiceError) {
-    console.error(`[getInvoiceWithItemsById] Supabase error fetching invoice by ID ${id}. User: ${user.id}, Role: ${profileData.role}. Error:`, invoiceError.message, invoiceError);
+    console.error(`[getInvoiceWithItemsById] Supabase error fetching invoice by ID ${id}. User: ${user.id}, Role: ${profileData.role}. Error Message:`, invoiceError.message, "Full Error Object:", invoiceError);
     return null;
   }
 
   if (!invoiceData) {
-    console.warn(`[getInvoiceWithItemsById] Invoice not found OR RLS blocked access for invoice ID ${id}. User: ${user.id} (Role: ${profileData.role}). This could be due to RLS policies on 'invoices', 'invoice_items', or 'factoring_bids'. The join for financier names was temporarily removed for debugging. Please check RLS policies on all these tables for the user's role.`);
+    console.warn(`[getInvoiceWithItemsById] Invoice data NOT FOUND (null) from DB query for invoice ID ${id}. User: ${user.id} (Role: ${profileData.role}). This likely means RLS on 'invoices', 'invoice_items', or 'factoring_bids' blocked the read for this user, OR the invoice ID is incorrect/does not exist.`);
     return null;
   }
+  
+  console.log(`[getInvoiceWithItemsById] Fetched raw invoiceData from DB (first 500 chars):`, JSON.stringify(invoiceData).substring(0, 500));
+
 
   // Authorization check (JavaScript layer, RLS is primary)
   const isOwner = invoiceData.user_id === user.id && profileData.role === UserRole.MSME;
   
   let isBuyerRecipient = false;
-  if (profileData.role === UserRole.BUYER) {
-    console.log(`[getInvoiceWithItemsById Auth Check - Buyer] User ID: ${user.id}, User Email: ${user.email}, Profile Role: ${profileData.role}`);
-    console.log(`[getInvoiceWithItemsById Auth Check - Buyer] Invoice ID: ${invoiceData.id}, Invoice Client Email: ${invoiceData.client_email}`);
-    if (user.email && invoiceData.client_email && invoiceData.client_email.toLowerCase() === user.email.toLowerCase()) {
-      isBuyerRecipient = true;
-      console.log(`[getInvoiceWithItemsById Auth Check - Buyer] Buyer IS recipient for invoice ${invoiceData.id}.`);
-    } else {
-      console.warn(`[getInvoiceWithItemsById Auth Check - Buyer] Email mismatch or missing email for invoice ${invoiceData.id}, user ${user.id}. Invoice Client Email: '${invoiceData.client_email}', User Email: '${user.email}'.`);
-    }
+  if (profileData.role === UserRole.BUYER && user.email && invoiceData.client_email) {
+    isBuyerRecipient = invoiceData.client_email.toLowerCase() === user.email.toLowerCase();
   }
 
   const isFinancierAndViewable = profileData.role === UserRole.FINANCIER &&
@@ -192,13 +189,15 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
      invoiceData.factoring_status === FactoringStatus.PENDING_FINANCING ||
      invoiceData.factoring_status === FactoringStatus.FINANCED);
 
-  console.log(`[getInvoiceWithItemsById Auth Check for Invoice ${invoiceData.id}] Calculated Permissions - isOwner: ${isOwner}, isBuyerRecipient: ${isBuyerRecipient}, isFinancierAndViewable: ${isFinancierAndViewable}`);
+  console.log(`[getInvoiceWithItemsById Auth Check for Invoice ${invoiceData.id}] User: ${user.id}, Role: ${profileData.role}, Invoice Owner ID: ${invoiceData.user_id}, Invoice Client Email: ${invoiceData.client_email}. Calculated Permissions - isOwner: ${isOwner}, isBuyerRecipient: ${isBuyerRecipient}, isFinancierAndViewable: ${isFinancierAndViewable}`);
 
 
   if (!isOwner && !isBuyerRecipient && !isFinancierAndViewable) {
-    console.warn(`[getInvoiceWithItemsById JS Auth Failed] User ${user.id} (Role: ${profileData.role}) not authorized by JS logic to view invoice ${invoiceData.id}. RLS should be the primary gatekeeper if data was fetched. If invoiceData was null, RLS likely blocked the DB query.`);
+    console.warn(`[getInvoiceWithItemsById JS Auth FAILED] User ${user.id} (Role: ${profileData.role}) not authorized by JS logic to view invoice ${invoiceData.id}.`);
     return null;
   }
+  
+  console.log(`[getInvoiceWithItemsById JS Auth SUCCEEDED] User ${user.id} (Role: ${profileData.role}) authorized to view invoice ${invoiceData.id}. Proceeding to map data.`);
   
   const invoice: InvoiceWithItems = {
     id: invoiceData.id,
@@ -234,12 +233,12 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
         discount_fee_percentage: bid.discount_fee_percentage,
         status: bid.status as FactoringBid['status'],
         created_at: bid.created_at,
-        financier_name: `Financier (ID: ${bid.financier_id.substring(0, 8)})`, // Placeholder
+        financier_name: `Financier (ID: ${bid.financier_id.substring(0, 8)})`, // Placeholder, will need a join to profiles later
     })),
     created_at: invoiceData.created_at,
     updated_at: invoiceData.updated_at,
   };
-
+  
   return invoice;
 }
 
@@ -278,23 +277,19 @@ export async function updateInvoiceAction(invoiceId: string, data: InvoiceFormVa
   let newIsFactoringRequested = existingInvoice.is_factoring_requested;
 
   if (status === InvoiceStatus.DRAFT) {
-    // If saving as draft, retain the current factoring status and request flag.
     newFactoringStatus = existingInvoice.factoring_status;
     newIsFactoringRequested = existingInvoice.is_factoring_requested;
   } else if (status === InvoiceStatus.SENT) {
-    // If moving to SENT, and factoring wasn't FINANCED or REPAID, it could be NONE or REQUESTED
     if (existingInvoice.factoring_status !== FactoringStatus.FINANCED && existingInvoice.factoring_status !== FactoringStatus.REPAID) {
-        // If it was previously REQUESTED, keep it as REQUESTED. Otherwise, it becomes NONE (or remains NONE).
         if(existingInvoice.factoring_status === FactoringStatus.REQUESTED) {
             newFactoringStatus = FactoringStatus.REQUESTED;
             newIsFactoringRequested = true;
         } else {
             newFactoringStatus = FactoringStatus.NONE;
-            newIsFactoringRequested = false; // Reset if it's not an active factoring state
+            newIsFactoringRequested = false; 
         }
     }
   } else if (status === InvoiceStatus.PAID || status === InvoiceStatus.VOID) {
-      // If invoice is voided or paid, reset factoring unless it's already FINANCED/REPAID
       if (existingInvoice.factoring_status !== FactoringStatus.FINANCED && existingInvoice.factoring_status !== FactoringStatus.REPAID) {
         newFactoringStatus = FactoringStatus.NONE;
         newIsFactoringRequested = false;
@@ -379,7 +374,6 @@ export async function deleteInvoiceAction(invoiceId: string): Promise<{ success:
     .from('invoices')
     .select('id, user_id, factoring_status') 
     .eq('id', invoiceId)
-    // .eq('user_id', user.id) // MSME owner check, for buyers this needs to be different or handled by RLS
     .single();
 
   if (fetchError || !invoice) {
@@ -387,7 +381,6 @@ export async function deleteInvoiceAction(invoiceId: string): Promise<{ success:
     return { success: false, error: 'Invoice not found or you do not have permission for this action on it.' };
   }
 
-  // Check if user is MSME owner - only MSME owner should be able to delete
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
   if (profile?.role !== UserRole.MSME || invoice.user_id !== user.id) {
       return { success: false, error: 'Only the MSME owner can delete this invoice.' };

@@ -78,6 +78,7 @@ export default function ViewInvoicePage() {
       setError(null);
       try {
         const data = await getInvoiceWithItemsById(invoiceId);
+        console.log("++++++++++++++++++++ ", data)
         if (data) {
           setInvoice(data);
         } else {

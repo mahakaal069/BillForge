@@ -114,8 +114,6 @@ export default async function DashboardPage() {
 
   const { data: invoicesData, error: invoicesError } = await invoicesQuery;
 
-  console.log("data -----------------> ", user);
-
   if (invoicesError) {
     const errorMessage = (invoicesError as any).message || 'No specific error message. Error object might be empty or not an instance of Error.';
     const userContext = `User ID: ${user.id}, Role: ${profile.role}, Email for query (if buyer): ${profile.role === UserRole.BUYER ? user.email : 'N/A'}.`;
