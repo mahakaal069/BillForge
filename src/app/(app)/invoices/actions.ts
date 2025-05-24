@@ -100,16 +100,21 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
-    console.error('User not authenticated to fetch invoice');
+    console.error('[getInvoiceWithItemsById] User not authenticated.');
     return null;
   }
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('role')
     .eq('id', user.id)
     .single();
 
+  if (profileError || !profile) {
+    console.error(`[getInvoiceWithItemsById] Error fetching profile for user ${user.id}:`, profileError);
+    return null; // Cannot determine role, so cannot authorize.
+  }
+  
   let query = supabase
     .from('invoices')
     .select(`
@@ -159,28 +164,34 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
 
 
   if (invoiceError) {
-    console.error('Error fetching invoice by ID:', invoiceError.message, invoiceError);
+    console.error(`[getInvoiceWithItemsById] Error fetching invoice by ID ${id}:`, invoiceError.message, invoiceError);
     return null;
   }
 
   if (!invoiceData) {
+    console.warn(`[getInvoiceWithItemsById] Invoice not found with ID ${id}.`);
     return null;
   }
 
   // Authorization check:
-  // MSME owner can view.
-  // Buyer can view if their email matches client_email.
-  // Financier can view if invoice is in a state relevant to them (e.g. BUYER_ACCEPTED or PENDING_FINANCING)
-  const isOwner = invoiceData.user_id === user.id && profile?.role === UserRole.MSME;
-  const isBuyerRecipient = profile?.role === UserRole.BUYER && invoiceData.client_email === user.email;
-  const isFinancierAndViewable = profile?.role === UserRole.FINANCIER &&
+  console.log(`[getInvoiceWithItemsById Auth Check] User ID: ${user.id}, User Email: ${user.email}, User Profile Role: ${profile.role}`);
+  console.log(`[getInvoiceWithItemsById Auth Check] Invoice ID: ${invoiceData.id}, Invoice Client Email: ${invoiceData.client_email}, Invoice User (MSME) ID: ${invoiceData.user_id}`);
+  
+  const isOwner = invoiceData.user_id === user.id && profile.role === UserRole.MSME;
+  // Case-insensitive email comparison for buyer check
+  const isBuyerRecipient = profile.role === UserRole.BUYER && 
+                           invoiceData.client_email?.toLowerCase() === user.email?.toLowerCase();
+  const isFinancierAndViewable = profile.role === UserRole.FINANCIER &&
     (invoiceData.factoring_status === FactoringStatus.BUYER_ACCEPTED ||
      invoiceData.factoring_status === FactoringStatus.PENDING_FINANCING ||
      invoiceData.factoring_status === FactoringStatus.FINANCED);
 
+  console.log(`[getInvoiceWithItemsById Auth Check] isOwner: ${isOwner}`);
+  console.log(`[getInvoiceWithItemsById Auth Check] isBuyerRecipient: ${isBuyerRecipient} (Comparing '${invoiceData.client_email?.toLowerCase()}' with '${user.email?.toLowerCase()}')`);
+  console.log(`[getInvoiceWithItemsById Auth Check] isFinancierAndViewable: ${isFinancierAndViewable}`);
 
   if (!isOwner && !isBuyerRecipient && !isFinancierAndViewable) {
-    console.error('User not authorized to view this invoice or invoice not in viewable state for role.');
+    console.warn(`[getInvoiceWithItemsById] User ${user.id} (Role: ${profile.role}) not authorized to view invoice ${invoiceData.id}.`);
     return null;
   }
   
@@ -231,7 +242,7 @@ export async function updateInvoiceAction(invoiceId: string, data: InvoiceFormVa
 
   const { data: existingInvoice, error: fetchExistingError } = await supabase
     .from('invoices')
-    .select('is_factoring_requested, factoring_status, user_id')
+    .select('is_factoring_requested, factoring_status, user_id, status') // Added status
     .eq('id', invoiceId)
     .single();
 
@@ -251,6 +262,30 @@ export async function updateInvoiceAction(invoiceId: string, data: InvoiceFormVa
     ? new Date(dueDate).toISOString().split('T')[0]
     : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
+  // Preserve existing factoring status if not explicitly changing to SENT
+  // If new status is DRAFT, keep existing factoring status. If new status is SENT, and factoring was requested, it should remain requested.
+  let newFactoringStatus = existingInvoice.factoring_status;
+  if (status === InvoiceStatus.SENT && existingInvoice.status === InvoiceStatus.DRAFT && existingInvoice.is_factoring_requested) {
+    // If moving from Draft to Sent, and factoring was already requested, keep it REQUESTED.
+    // Or, if factoring process is further along, keep that status.
+    // This logic might need refinement based on exact workflow for factoring drafts.
+     if (existingInvoice.factoring_status === FactoringStatus.NONE) {
+        // If it was a draft and no factoring initiated, but now sending, user might request factoring later.
+        // For now, if it was a draft and factoring_status was NONE, and user_id matches, it becomes SENT and factoring status remains NONE.
+        // If it was a DRAFT and is_factoring_requested was TRUE and factoring_status was REQUESTED, it should remain REQUESTED.
+        // This is handled by `let newFactoringStatus = existingInvoice.factoring_status;`
+     }
+  } else if (status === InvoiceStatus.DRAFT) {
+      // If saving as draft, retain the current factoring status and request flag.
+      newFactoringStatus = existingInvoice.factoring_status;
+  } else if (status !== InvoiceStatus.SENT && status !== InvoiceStatus.OVERDUE) {
+      // If invoice is voided, paid, etc., reset factoring unless it's already FINANCED/REPAID
+      if (existingInvoice.factoring_status !== FactoringStatus.FINANCED && existingInvoice.factoring_status !== FactoringStatus.REPAID) {
+        newFactoringStatus = FactoringStatus.NONE;
+      }
+  }
+
+
   const invoiceToUpdate = {
     client_name: clientName,
     client_email: clientEmail,
@@ -264,8 +299,8 @@ export async function updateInvoiceAction(invoiceId: string, data: InvoiceFormVa
     tax_amount: taxAmount,
     total_amount: totalAmount,
     updated_at: new Date().toISOString(),
-    is_factoring_requested: existingInvoice.is_factoring_requested,
-    factoring_status: existingInvoice.factoring_status,
+    is_factoring_requested: existingInvoice.is_factoring_requested, // Preserve existing flag
+    factoring_status: newFactoringStatus, // Use the determined new factoring status
   };
 
   const { error: invoiceUpdateError } = await supabase
@@ -324,11 +359,12 @@ export async function deleteInvoiceAction(invoiceId: string): Promise<{ success:
     return { success: false, error: 'User not authenticated. Please log in.' };
   }
 
+  // Before deleting, ensure the user owns the invoice (MSME check)
   const { data: invoice, error: fetchError } = await supabase
     .from('invoices')
-    .select('id, user_id')
+    .select('id, user_id, factoring_status') // Check factoring_status
     .eq('id', invoiceId)
-    .eq('user_id', user.id)
+    .eq('user_id', user.id) // Crucial: only owner can delete
     .single();
 
   if (fetchError || !invoice) {
@@ -336,11 +372,31 @@ export async function deleteInvoiceAction(invoiceId: string): Promise<{ success:
     return { success: false, error: 'Invoice not found or you do not have permission to delete it.' };
   }
 
+  // Optional: Add a check to prevent deletion if invoice is in an active factoring process (e.g., FINANCED)
+  // if (invoice.factoring_status === FactoringStatus.FINANCED || invoice.factoring_status === FactoringStatus.PENDING_FINANCING) {
+  //   return { success: false, error: 'Cannot delete an invoice that is actively being financed.' };
+  // }
+
+  // First, delete associated factoring bids if any.
+  // This is important if there's no ON DELETE CASCADE from invoices to factoring_bids on invoice_id.
+  // Assuming factoring_bids.invoice_id references invoices.id
+  const { error: deleteBidsError } = await supabase
+    .from('factoring_bids')
+    .delete()
+    .eq('invoice_id', invoiceId);
+
+  if (deleteBidsError) {
+      console.error('Error deleting associated factoring bids:', deleteBidsError);
+      // Decide if this should be a hard stop or just a warning
+      // return { success: false, error: 'Failed to delete associated factoring bids.' };
+  }
+
+
   const { error: deleteError } = await supabase
     .from('invoices')
     .delete()
     .eq('id', invoiceId)
-    .eq('user_id', user.id);
+    .eq('user_id', user.id); // Redundant user_id check here if the select above is trusted, but safe
 
   if (deleteError) {
     console.error('Error deleting invoice:', deleteError);
@@ -348,7 +404,8 @@ export async function deleteInvoiceAction(invoiceId: string): Promise<{ success:
   }
 
   revalidatePath('/dashboard');
-  revalidatePath(`/invoices/${invoiceId}/view`);
+  revalidatePath(`/invoices/${invoiceId}/view`); // This path will 404 after deletion, which is fine.
+  revalidatePath(`/invoices/${invoiceId}/edit`); // Same as above.
   return { success: true };
 }
 
@@ -372,7 +429,7 @@ export async function requestInvoiceFactoringAction(invoiceId: string): Promise<
 
   const { data: invoice, error: fetchError } = await supabase
     .from('invoices')
-    .select('id, user_id, status, factoring_status')
+    .select('id, user_id, status, factoring_status, total_amount') // Added total_amount
     .eq('id', invoiceId)
     .eq('user_id', user.id)
     .single();
@@ -381,9 +438,13 @@ export async function requestInvoiceFactoringAction(invoiceId: string): Promise<
     return { success: false, error: 'Invoice not found or you do not have permission.' };
   }
 
-  if (invoice.status !== InvoiceStatus.SENT && invoice.status !== InvoiceStatus.PAID) {
-    return { success: false, error: 'Factoring can only be requested for sent or paid invoices.' };
+  if (invoice.status !== InvoiceStatus.SENT && invoice.status !== InvoiceStatus.OVERDUE) {
+    return { success: false, error: 'Factoring can only be requested for Sent or Overdue invoices.' };
   }
+  if (invoice.total_amount <= 0) {
+     return { success: false, error: 'Factoring cannot be requested for invoices with zero or negative amount.'};
+  }
+
 
   if (invoice.factoring_status !== FactoringStatus.NONE) {
     return { success: false, error: 'Invoice is already in a factoring process or request.' };
@@ -432,7 +493,7 @@ export async function acceptFactoringByBuyerAction(invoiceId: string): Promise<{
     return { success: false, error: 'Invoice not found.' };
   }
 
-  if (invoice.client_email !== user.email) {
+  if (invoice.client_email?.toLowerCase() !== user.email?.toLowerCase()) {
     return { success: false, error: 'You are not authorized to act on this invoice.' };
   }
 
@@ -486,7 +547,7 @@ export async function rejectFactoringByBuyerAction(invoiceId: string): Promise<{
     return { success: false, error: 'Invoice not found.' };
   }
 
-  if (invoice.client_email !== user.email) {
+  if (invoice.client_email?.toLowerCase() !== user.email?.toLowerCase()) {
     return { success: false, error: 'You are not authorized to act on this invoice.' };
   }
 
@@ -668,3 +729,4 @@ export async function acceptFactoringBidAction(
   revalidatePath('/dashboard');
   return { success: true };
 }
+
