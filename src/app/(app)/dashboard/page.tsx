@@ -135,7 +135,12 @@ export default async function DashboardPage() {
   if (invoicesError) {
     const errorMessage = (invoicesError as any).message || 'No specific error message. Error object might be empty or not an instance of Error.';
     const userContext = `User ID: ${user.id}, Role: ${profile.role}, Email for query (if buyer): ${profile.role === UserRole.BUYER ? user.email : 'N/A'}.`;
-    console.error(`Error fetching invoices: ${errorMessage}. ${userContext}. Raw error object:`, invoicesError);
+    // Log the attempted join syntax if the error is about relationships
+    let joinDebugInfo = '';
+    if (errorMessage.includes("Could not find a relationship")) {
+        joinDebugInfo = ` Attempted join syntax: ${msmeProfileJoinSyntax}.`;
+    }
+    console.error(`Error fetching invoices: ${errorMessage}.${joinDebugInfo} ${userContext}. Raw error object:`, invoicesError);
 
     return (
         <div className="flex flex-col items-center justify-center h-full">
@@ -372,5 +377,3 @@ export default async function DashboardPage() {
     </div>
   );
 }
-
-    
