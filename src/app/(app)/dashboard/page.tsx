@@ -8,7 +8,7 @@ import type { Invoice } from '@/types/invoice';
 import { InvoiceStatus, FactoringStatus } from '@/types/invoice';
 import { InvoiceStatusBadge } from '@/components/InvoiceStatusBadge';
 import { format } from 'date-fns';
-import { ArrowUpRight, PlusCircle, FileText, AlertTriangle, Edit, TrendingUp, Handshake, XCircle, Landmark } from 'lucide-react';
+import { ArrowUpRight, PlusCircle, FileText, AlertTriangle, Edit, TrendingUp, Handshake, XCircle, Landmark, Briefcase, Building } from 'lucide-react';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { DeleteInvoiceDialog } from '@/components/invoice/DeleteInvoiceDialog';
@@ -69,6 +69,12 @@ export default async function DashboardPage() {
 
 
   let invoicesQuery;
+  // IMPORTANT: Replace 'invoices_user_id_fkey' with the actual name of the foreign key constraint
+  // on your 'invoices.user_id' column that references 'auth.users(id)' if this doesn't work.
+  // You can find this name by inspecting your 'invoices' table schema in the Supabase dashboard or SQL editor.
+  const msmeProfileJoinSyntax = 'profiles!invoices_user_id_fkey(full_name)';
+
+
   if (profile.role === UserRole.MSME) {
     invoicesQuery = supabase
       .from('invoices')
@@ -98,7 +104,7 @@ export default async function DashboardPage() {
         is_factoring_requested,
         factoring_status,
         created_at,
-        profiles!user_id(full_name)
+        ${msmeProfileJoinSyntax} 
       `)
       .eq('client_email', user.email)
       .order('created_at', { ascending: false });
@@ -114,7 +120,7 @@ export default async function DashboardPage() {
         status,
         factoring_status,
         created_at,
-        profiles!user_id(full_name)
+        ${msmeProfileJoinSyntax}
       `)
       .in('factoring_status', [FactoringStatus.BUYER_ACCEPTED, FactoringStatus.PENDING_FINANCING, FactoringStatus.FINANCED])
       .order('created_at', { ascending: false });
@@ -147,13 +153,13 @@ export default async function DashboardPage() {
     invoiceNumber: inv.invoice_number,
     clientName: inv.client_name,
     sellerName: (profile.role === UserRole.BUYER || profile.role === UserRole.FINANCIER) && inv.profiles ? inv.profiles.full_name : undefined,
-    clientEmail: '',
-    clientAddress: '',
-    invoiceDate: '',
+    clientEmail: '', // Not fetched for all roles, populated as needed
+    clientAddress: '', // Not fetched for all roles
+    invoiceDate: '', // Not fetched for all roles
     dueDate: inv.due_date,
-    items: [],
-    subtotal: 0,
-    taxAmount: 0,
+    items: [], // Not fetched in dashboard list view
+    subtotal: 0, // Not fetched
+    taxAmount: 0, // Not fetched
     totalAmount: inv.total_amount ?? 0,
     status: inv.status as InvoiceStatus,
     is_factoring_requested: inv.is_factoring_requested,
@@ -234,27 +240,33 @@ export default async function DashboardPage() {
     )}
     {isBuyer && (
         <Card>
-            <CardHeader>
-                <CardTitle>Invoices Sent To You</CardTitle>
-                <CardDescription>These are invoices where you are listed as the client.</CardDescription>
+            <CardHeader className="flex items-center gap-2">
+                 <Building className="h-6 w-6 text-primary"/>
+                <div>
+                    <CardTitle>Invoices Sent To You</CardTitle>
+                    <CardDescription>These are invoices where you are listed as the client.</CardDescription>
+                </div>
             </CardHeader>
         </Card>
     )}
     {isFinancier && (
         <Card>
-            <CardHeader>
-                <CardTitle className="flex items-center">
-                    <Landmark className="mr-2 h-5 w-5 text-primary"/>
-                    Factoring Opportunities
-                </CardTitle>
-                <CardDescription>These invoices have been accepted by buyers for factoring or are pending financing bids.</CardDescription>
+            <CardHeader className="flex items-center gap-2">
+                <Landmark className="h-6 w-6 text-primary"/>
+                <div>
+                    <CardTitle>Factoring Opportunities</CardTitle>
+                    <CardDescription>Invoices accepted by buyers or pending financing bids.</CardDescription>
+                </div>
             </CardHeader>
         </Card>
     )}
 
       <Card>
         <CardHeader>
-          <CardTitle>
+          <CardTitle className="flex items-center">
+            {isMSME ? <Briefcase className="mr-2 h-5 w-5 text-primary"/> : null}
+            {isBuyer ? <Building className="mr-2 h-5 w-5 text-primary"/> : null}
+            {isFinancier ? <Landmark className="mr-2 h-5 w-5 text-primary"/> : null}
             {isMSME ? 'Recent Invoices' : isBuyer ? 'Your Invoices' : 'Factoring Opportunities'}
           </CardTitle>
           <CardDescription>
@@ -285,8 +297,8 @@ export default async function DashboardPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Invoice ID</TableHead>
-                <TableHead>{isMSME ? 'Client' : 'Seller (MSME)'}</TableHead>
-                {isFinancier && <TableHead>Buyer</TableHead>}
+                <TableHead>{isMSME ? 'Client (Buyer)' : 'Seller (MSME)'}</TableHead>
+                {isFinancier && <TableHead>Buyer (Client)</TableHead>}
                 <TableHead>Amount</TableHead>
                 <TableHead>Due Date</TableHead>
                 <TableHead>Status</TableHead>
@@ -311,7 +323,7 @@ export default async function DashboardPage() {
                         invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED ? "default" :
                         invoice.factoring_status === FactoringStatus.BUYER_REJECTED ? "destructive" :
                         invoice.factoring_status === FactoringStatus.PENDING_FINANCING ? "secondary" :
-                        invoice.factoring_status === FactoringStatus.FINANCED ? "default" : // Using accent for financed
+                        invoice.factoring_status === FactoringStatus.FINANCED ? "default" :
                         "secondary"
                        } className={cn("flex items-center gap-1.5", {
                         "bg-green-500 text-white hover:bg-green-600": invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED || invoice.factoring_status === FactoringStatus.PENDING_FINANCING,
@@ -361,5 +373,3 @@ export default async function DashboardPage() {
     </div>
   );
 }
-
-    
