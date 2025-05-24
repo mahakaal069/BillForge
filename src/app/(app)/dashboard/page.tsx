@@ -8,7 +8,7 @@ import type { Invoice } from '@/types/invoice';
 import { InvoiceStatus, FactoringStatus } from '@/types/invoice';
 import { InvoiceStatusBadge } from '@/components/InvoiceStatusBadge';
 import { format } from 'date-fns';
-import { ArrowUpRight, PlusCircle, FileText, AlertTriangle, Edit, TrendingUp, CheckCircle, XCircle, Landmark, Handshake } from 'lucide-react';
+import { ArrowUpRight, PlusCircle, FileText, AlertTriangle, Edit, TrendingUp, Handshake, XCircle, Landmark } from 'lucide-react';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { DeleteInvoiceDialog } from '@/components/invoice/DeleteInvoiceDialog';
@@ -98,7 +98,7 @@ export default async function DashboardPage() {
         is_factoring_requested,
         factoring_status,
         created_at,
-        profiles!user_id:id(full_name)
+        profiles!user_id(full_name)
       `)
       .eq('client_email', user.email)
       .order('created_at', { ascending: false });
@@ -114,7 +114,7 @@ export default async function DashboardPage() {
         status,
         factoring_status,
         created_at,
-        profiles!user_id:id(full_name)
+        profiles!user_id(full_name)
       `)
       .in('factoring_status', [FactoringStatus.BUYER_ACCEPTED, FactoringStatus.PENDING_FINANCING, FactoringStatus.FINANCED])
       .order('created_at', { ascending: false });
@@ -290,8 +290,7 @@ export default async function DashboardPage() {
                 <TableHead>Amount</TableHead>
                 <TableHead>Due Date</TableHead>
                 <TableHead>Status</TableHead>
-                {!isFinancier && <TableHead>Factoring</TableHead>}
-                {isFinancier && <TableHead>Factoring Status</TableHead>}
+                <TableHead>Factoring Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -312,6 +311,7 @@ export default async function DashboardPage() {
                         invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED ? "default" :
                         invoice.factoring_status === FactoringStatus.BUYER_REJECTED ? "destructive" :
                         invoice.factoring_status === FactoringStatus.PENDING_FINANCING ? "secondary" :
+                        invoice.factoring_status === FactoringStatus.FINANCED ? "default" : // Using accent for financed
                         "secondary"
                        } className={cn("flex items-center gap-1.5", {
                         "bg-green-500 text-white hover:bg-green-600": invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED || invoice.factoring_status === FactoringStatus.PENDING_FINANCING,
@@ -362,3 +362,4 @@ export default async function DashboardPage() {
   );
 }
 
+    
