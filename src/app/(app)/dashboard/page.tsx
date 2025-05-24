@@ -68,77 +68,58 @@ export default async function DashboardPage() {
 
 
   let invoicesQuery;
-  // This syntax tells Supabase:
+  // This join syntax tells Supabase:
   // "For the 'profiles' table, use the 'user_id' column from the current 'invoices' table
   // to match against the primary key of 'profiles' (which is 'id'). Then, retrieve 'full_name'."
+  // This is used to get the MSME (seller) name for Buyers and Financiers.
   const msmeProfileJoinSyntax = 'profiles!user_id(full_name)';
+  let selectString = `
+    id,
+    invoice_number,
+    client_name,
+    total_amount,
+    due_date,
+    status,
+    is_factoring_requested,
+    factoring_status,
+    created_at
+  `;
 
 
   if (profile.role === UserRole.MSME) {
     invoicesQuery = supabase
       .from('invoices')
-      .select(`
-        id,
-        invoice_number,
-        client_name,
-        total_amount,
-        due_date,
-        status,
-        is_factoring_requested,
-        factoring_status,
-        created_at
-      `)
+      .select(selectString) // MSME doesn't need to join for their own name here
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
   } else if (profile.role === UserRole.BUYER && user.email) {
+    selectString += `,${msmeProfileJoinSyntax}`; // Add join for MSME name
     invoicesQuery = supabase
       .from('invoices')
-      .select(`
-        id,
-        invoice_number,
-        client_name,
-        total_amount,
-        due_date,
-        status,
-        is_factoring_requested,
-        factoring_status,
-        created_at,
-        ${msmeProfileJoinSyntax}
-      `)
+      .select(selectString)
       .eq('client_email', user.email)
       .order('created_at', { ascending: false });
   } else if (profile.role === UserRole.FINANCIER) {
+    selectString += `,${msmeProfileJoinSyntax}`; // Add join for MSME name
     invoicesQuery = supabase
       .from('invoices')
-      .select(`
-        id,
-        invoice_number,
-        client_name,
-        total_amount,
-        due_date,
-        status,
-        factoring_status,
-        created_at,
-        ${msmeProfileJoinSyntax}
-      `)
+      .select(selectString)
       .in('factoring_status', [FactoringStatus.BUYER_ACCEPTED, FactoringStatus.PENDING_FINANCING, FactoringStatus.FINANCED])
       .order('created_at', { ascending: false });
   } else {
     console.warn(`Dashboard: User ${user.id} has role '${profile.role}' and email '${user.email}', which doesn't match MSME, BUYER with email, or FINANCIER for invoice fetching. Returning empty set.`);
-    invoicesQuery = supabase.from('invoices').select('*').limit(0);
+    invoicesQuery = supabase.from('invoices').select('*').limit(0); // Ensures query is not null
   }
 
 
   const { data: invoicesData, error: invoicesError } = await invoicesQuery;
 
-
   if (invoicesError) {
     const errorMessage = (invoicesError as any).message || 'No specific error message. Error object might be empty or not an instance of Error.';
     const userContext = `User ID: ${user.id}, Role: ${profile.role}, Email for query (if buyer): ${profile.role === UserRole.BUYER ? user.email : 'N/A'}.`;
-    // Log the attempted join syntax if the error is about relationships
     let joinDebugInfo = '';
     if (errorMessage.includes("Could not find a relationship")) {
-        joinDebugInfo = ` Attempted join syntax: ${msmeProfileJoinSyntax}.`;
+        joinDebugInfo = ` Attempted join syntax for MSME name: ${msmeProfileJoinSyntax}.`;
     }
     console.error(`Error fetching invoices: ${errorMessage}.${joinDebugInfo} ${userContext}. Raw error object:`, invoicesError);
 
@@ -155,8 +136,9 @@ export default async function DashboardPage() {
   const invoices: Invoice[] = (invoicesData || []).map((inv: any) => ({
     id: inv.id,
     invoiceNumber: inv.invoice_number,
-    clientName: inv.client_name,
-    sellerName: (profile.role === UserRole.BUYER || profile.role === UserRole.FINANCIER) && inv.profiles ? inv.profiles.full_name : undefined,
+    clientName: inv.client_name, // For MSME, this is their client. For Buyer/Financier, this is the Buyer's name.
+    // For Buyers/Financiers, inv.profiles should contain the MSME's (seller's) details
+    sellerName: (profile.role === UserRole.BUYER || profile.role === UserRole.FINANCIER) && inv.profiles ? inv.profiles.full_name : (profile.role === UserRole.MSME ? profile.full_name : undefined),
     clientEmail: '', // Not fetched for all roles, populated as needed
     clientAddress: '', // Not fetched for all roles
     invoiceDate: '', // Not fetched for all roles
@@ -377,3 +359,6 @@ export default async function DashboardPage() {
     </div>
   );
 }
+
+
+    
