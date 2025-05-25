@@ -28,7 +28,7 @@ export async function createInvoiceAction(data: InvoiceFormValues, status: Invoi
   const formattedInvoiceDate = invoiceDate ? new Date(invoiceDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
   const formattedDueDate = dueDate
     ? new Date(dueDate).toISOString().split('T')[0]
-    : new Date(new Date(formattedInvoiceDate).getDate() + 30).toISOString().split('T')[0]; // Default to 30 days from invoiceDate
+    : new Date(new Date(formattedInvoiceDate).valueOf() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
 
   const invoiceToInsert = {
@@ -77,8 +77,7 @@ export async function createInvoiceAction(data: InvoiceFormValues, status: Invoi
 
     if (itemsError) {
       console.error('SERVER ACTION LOG: [createInvoiceAction] Error inserting invoice items:', itemsError);
-      // Rollback invoice creation if items fail
-      await supabase.from('invoices').delete().eq('id', invoiceId); 
+      await supabase.from('invoices').delete().eq('id', invoiceId);
       return { success: false, error: itemsError.message || 'Failed to create invoice items.' };
     }
   }
@@ -101,7 +100,7 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
 
   const supabase = createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
-  
+
   if (!user) {
     console.error("SERVER ACTION LOG: [getInvoiceWithItemsById] User not authenticated. Aborting fetch.");
     return null;
@@ -116,11 +115,11 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
 
   if (profileError || !profileData) {
     console.error(`SERVER ACTION LOG: [getInvoiceWithItemsById] Error fetching profile for user ${user.id}. ProfileError:`, profileError, "ProfileData:", profileData, "Aborting fetch.");
-    return null; 
+    return null;
   }
-  const userRole = profileData.role;
+  const userRole = profileData.role as UserRole;
   console.log(`SERVER ACTION LOG: [getInvoiceWithItemsById] User Role: ${userRole}. Fetching invoice details for Invoice ID: ${id}`);
-  
+
   const { data: invoiceData, error: invoiceError } = await supabase
     .from('invoices')
     .select(`
@@ -172,24 +171,24 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
   }
 
   if (!invoiceData) {
-    let rlsHint = `RLS Hint for role ${userRole}: `;
+    let rlsHint = `RLS Hint for role ${userRole} (attempting to fetch invoice ${id}): `;
     if (userRole === UserRole.MSME) {
-      rlsHint += `Ensure RLS policy on 'public.invoices' allows SELECT for 'user_id' == auth.uid(). Also check RLS for 'public.invoice_items' (via invoice_id and user_id) and 'public.factoring_bids' (via invoice_id and user_id).`;
+      rlsHint += `Ensure RLS policy on 'public.invoices' allows SELECT for 'user_id' == auth.uid(). Also check RLS for 'public.invoice_items' (via invoice_id and user_id) and 'public.factoring_bids' (via invoice_id and user_id). The join for 'factoring_bids.financier_profile' also requires SELECT on 'public.profiles' for the MSME user to see the financier's name.`;
     } else if (userRole === UserRole.BUYER) {
-      rlsHint += `Ensure RLS policy on 'public.invoices' allows SELECT for 'client_email' == auth.email(). Also check RLS for 'public.invoice_items' (via invoice_id and client_email) and 'public.factoring_bids' (via invoice_id and client_email). The join for financier names via 'factoring_bids.financier_id' also requires SELECT on 'public.profiles'.`;
+      rlsHint += `Ensure RLS policy on 'public.invoices' allows SELECT for 'client_email' == auth.email(). Also check RLS for 'public.invoice_items' (via invoice_id and client_email) and 'public.factoring_bids' (via invoice_id and client_email). The join for 'factoring_bids.financier_profile' also requires SELECT on 'public.profiles' for the BUYER user to see the financier's name.`;
     } else if (userRole === UserRole.FINANCIER) {
-      rlsHint += `Ensure RLS on 'public.invoices' allows SELECT for relevant 'factoring_status' (e.g., BUYER_ACCEPTED, PENDING_FINANCING, FINANCED). Also check RLS for 'public.invoice_items', 'public.factoring_bids', and 'public.profiles' for MSME/Buyer/Financier names.`;
+      rlsHint += `Ensure RLS on 'public.invoices' allows SELECT for relevant 'factoring_status'. Also check RLS for 'public.invoice_items', 'public.factoring_bids' (including joining own profile for 'financier_profile'), and 'public.profiles' for MSME/Buyer names.`;
     } else {
-      rlsHint += "Unknown role or context. Please verify all RLS policies.";
+      rlsHint += "Unknown role or context. Please verify all RLS policies on invoices, invoice_items, factoring_bids, and profiles.";
     }
-    console.warn(`SERVER ACTION LOG: [getInvoiceWithItemsById INVOICE DATA NULL POST-QUERY] For Invoice ID ${id}, User: ${user.id}, Role: ${userRole}. This usually means Row Level Security (RLS) policies are blocking read access for this user/role combination for this specific invoice or its related items/bids, or a join to profiles. ${rlsHint} Also, double-check that an invoice with ID '${id}' actually exists.`);
+    console.warn(`SERVER ACTION LOG: [getInvoiceWithItemsById INVOICE DATA NULL POST-QUERY] For Invoice ID ${id}, User: ${user.id}, Role: ${userRole}. This usually means Row Level Security (RLS) policies are blocking read access for this user/role combination for this specific invoice OR its related items/bids (including nested joins to profiles). ${rlsHint} Also, double-check that an invoice with ID '${id}' actually exists.`);
     return null;
   }
-  
+
   console.log(`SERVER ACTION LOG: [getInvoiceWithItemsById] Fetched raw invoiceData from DB (first 500 chars):`, JSON.stringify(invoiceData).substring(0, 500));
 
   const isOwner = invoiceData.user_id === user.id && userRole === UserRole.MSME;
-  
+
   let isBuyerRecipient = false;
   if (userRole === UserRole.BUYER && user.email && invoiceData.client_email) {
     isBuyerRecipient = invoiceData.client_email.toLowerCase() === user.email.toLowerCase();
@@ -207,9 +206,9 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
     console.warn(`SERVER ACTION LOG: [getInvoiceWithItemsById JS Auth FAILED] User ${user.id} (Role: ${userRole}) not authorized by JS logic to view invoice ${invoiceData.id}.`);
     return null;
   }
-  
+
   console.log(`SERVER ACTION LOG: [getInvoiceWithItemsById JS Auth SUCCEEDED] User ${user.id} (Role: ${userRole}) authorized to view invoice ${invoiceData.id}. Proceeding to map data.`);
-  
+
   const invoice: InvoiceWithItems = {
     id: invoiceData.id,
     invoiceNumber: invoiceData.invoice_number,
@@ -249,7 +248,7 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
     created_at: invoiceData.created_at,
     updated_at: invoiceData.updated_at,
   };
-  
+
   return invoice;
 }
 
@@ -263,7 +262,7 @@ export async function updateInvoiceAction(invoiceId: string, data: InvoiceFormVa
 
   const { data: existingInvoice, error: fetchExistingError } = await supabase
     .from('invoices')
-    .select('is_factoring_requested, factoring_status, user_id, status') 
+    .select('is_factoring_requested, factoring_status, user_id, status')
     .eq('id', invoiceId)
     .single();
 
@@ -281,37 +280,30 @@ export async function updateInvoiceAction(invoiceId: string, data: InvoiceFormVa
   const formattedInvoiceDate = invoiceDate ? new Date(invoiceDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
   const formattedDueDate = dueDate
     ? new Date(dueDate).toISOString().split('T')[0]
-    : new Date(new Date(formattedInvoiceDate).getDate() + 30).toISOString().split('T')[0];
+    : new Date(new Date(formattedInvoiceDate).valueOf() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
 
   let newFactoringStatus = existingInvoice.factoring_status;
   let newIsFactoringRequested = existingInvoice.is_factoring_requested;
 
-  // Logic to reset factoring status if invoice is moved to DRAFT, or finalized as PAID/VOID
-  // unless it's already fully FINANCED/REPAID.
   if (status === InvoiceStatus.DRAFT) {
-    // If moving to draft, and not yet fully financed/repaid, reset factoring flags
     if (existingInvoice.factoring_status !== FactoringStatus.FINANCED && existingInvoice.factoring_status !== FactoringStatus.REPAID) {
         newFactoringStatus = FactoringStatus.NONE;
         newIsFactoringRequested = false;
     }
   } else if (status === InvoiceStatus.SENT) {
-    // If moving to sent from draft, and it was previously in a factoring flow (but not FINANCED/REPAID), reset.
-    // If it was never in factoring or was reset, it remains NONE.
     if (existingInvoice.factoring_status !== FactoringStatus.FINANCED && existingInvoice.factoring_status !== FactoringStatus.REPAID) {
       if(existingInvoice.status === InvoiceStatus.DRAFT && existingInvoice.factoring_status !== FactoringStatus.NONE){
-         newFactoringStatus = FactoringStatus.NONE; // Reset if it was DRAFT and had some factoring status
+         newFactoringStatus = FactoringStatus.NONE;
          newIsFactoringRequested = false;
       } else {
-        // Keep existing factoring status if it was already SENT and in a flow (e.g. REQUESTED)
         newFactoringStatus = existingInvoice.factoring_status === FactoringStatus.NONE ? FactoringStatus.NONE : existingInvoice.factoring_status;
         newIsFactoringRequested = existingInvoice.is_factoring_requested === false ? false : existingInvoice.is_factoring_requested;
       }
     }
   } else if (status === InvoiceStatus.PAID || status === InvoiceStatus.VOID) {
-      // If paid or void, and not yet fully financed/repaid, cancel any active factoring
       if (existingInvoice.factoring_status !== FactoringStatus.FINANCED && existingInvoice.factoring_status !== FactoringStatus.REPAID) {
-        newFactoringStatus = FactoringStatus.NONE; // Or a specific "CANCELLED" status if you add one
+        newFactoringStatus = FactoringStatus.NONE;
         newIsFactoringRequested = false;
       }
   }
@@ -330,22 +322,21 @@ export async function updateInvoiceAction(invoiceId: string, data: InvoiceFormVa
     tax_amount: taxAmount,
     total_amount: totalAmount,
     updated_at: new Date().toISOString(),
-    is_factoring_requested: newIsFactoringRequested, 
-    factoring_status: newFactoringStatus, 
+    is_factoring_requested: newIsFactoringRequested,
+    factoring_status: newFactoringStatus,
   };
 
   const { error: invoiceUpdateError } = await supabase
     .from('invoices')
     .update(invoiceToUpdate)
     .eq('id', invoiceId)
-    .eq('user_id', user.id); // Ensure only owner can update
+    .eq('user_id', user.id);
 
   if (invoiceUpdateError) {
     console.error('SERVER ACTION LOG: [updateInvoiceAction] Error updating invoice:', invoiceUpdateError);
     return { success: false, error: invoiceUpdateError.message || 'Failed to update invoice.' };
   }
 
-  // Delete existing items and re-insert new ones
   const { error: deleteItemsError } = await supabase
     .from('invoice_items')
     .delete()
@@ -393,7 +384,7 @@ export async function deleteInvoiceAction(invoiceId: string): Promise<{ success:
 
   const { data: invoice, error: fetchError } = await supabase
     .from('invoices')
-    .select('id, user_id, factoring_status') 
+    .select('id, user_id, factoring_status')
     .eq('id', invoiceId)
     .single();
 
@@ -417,11 +408,21 @@ export async function deleteInvoiceAction(invoiceId: string): Promise<{ success:
       console.error('SERVER ACTION LOG: [deleteInvoiceAction] Error deleting associated factoring bids:', deleteBidsError);
   }
 
+  const { error: deleteItemsError } = await supabase // Also delete associated items
+    .from('invoice_items')
+    .delete()
+    .eq('invoice_id', invoiceId);
+
+  if (deleteItemsError) {
+      console.error('SERVER ACTION LOG: [deleteInvoiceAction] Error deleting associated invoice items:', deleteItemsError);
+  }
+
+
   const { error: deleteError } = await supabase
     .from('invoices')
     .delete()
     .eq('id', invoiceId)
-    .eq('user_id', user.id); 
+    .eq('user_id', user.id);
 
   if (deleteError) {
     console.error('SERVER ACTION LOG: [deleteInvoiceAction] Error deleting invoice:', deleteError);
@@ -429,8 +430,8 @@ export async function deleteInvoiceAction(invoiceId: string): Promise<{ success:
   }
 
   revalidatePath('/dashboard');
-  revalidatePath(`/invoices/${invoiceId}/view`); 
-  revalidatePath(`/invoices/${invoiceId}/edit`); 
+  revalidatePath(`/invoices/${invoiceId}/view`);
+  revalidatePath(`/invoices/${invoiceId}/edit`);
   return { success: true };
 }
 
@@ -454,9 +455,9 @@ export async function requestInvoiceFactoringAction(invoiceId: string): Promise<
 
   const { data: invoice, error: fetchError } = await supabase
     .from('invoices')
-    .select('id, user_id, status, factoring_status, total_amount') 
+    .select('id, user_id, status, factoring_status, total_amount')
     .eq('id', invoiceId)
-    .eq('user_id', user.id) 
+    .eq('user_id', user.id)
     .single();
 
   if (fetchError || !invoice) {
@@ -640,7 +641,7 @@ export async function placeFactoringBidAction(
       financier_id: user.id,
       bid_amount: bidAmount,
       discount_fee_percentage: discountFeePercentage,
-      status: 'PENDING', 
+      status: 'PENDING',
     })
     .select('id')
     .single();
@@ -662,7 +663,7 @@ export async function placeFactoringBidAction(
   }
 
   revalidatePath(`/invoices/${invoiceId}/view`);
-  revalidatePath('/dashboard'); 
+  revalidatePath('/dashboard');
   return { success: true, bidId: newBid.id };
 }
 
@@ -699,7 +700,7 @@ export async function acceptFactoringBidAction(
     .from('factoring_bids')
     .select('id, financier_id, status')
     .eq('id', bidId)
-    .eq('invoice_id', invoiceId) 
+    .eq('invoice_id', invoiceId)
     .single();
 
   if (fetchBidError || !bid) return { success: false, error: 'Bid not found.' };
@@ -730,13 +731,13 @@ export async function acceptFactoringBidAction(
     await supabase.from('factoring_bids').update({ status: 'PENDING', updated_at: new Date().toISOString() }).eq('id', bidId);
     return { success: false, error: 'Failed to update invoice to financed state.' };
   }
-  
+
   const { error: updateOtherBidsError } = await supabase
     .from('factoring_bids')
     .update({ status: 'REJECTED_BY_MSME', updated_at: new Date().toISOString() })
-    .eq('invoice_id', invoiceId) 
-    .neq('id', bidId)             
-    .eq('status', 'PENDING');     
+    .eq('invoice_id', invoiceId)
+    .neq('id', bidId)
+    .eq('status', 'PENDING');
 
   if (updateOtherBidsError) {
     console.warn('SERVER ACTION LOG: [acceptFactoringBidAction] Error updating other pending bids to REJECTED_BY_MSME:', updateOtherBidsError);
@@ -747,3 +748,4 @@ export async function acceptFactoringBidAction(
   return { success: true };
 }
 
+    
