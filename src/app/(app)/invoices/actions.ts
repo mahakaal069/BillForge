@@ -120,6 +120,7 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
   const userRole = profileData.role as UserRole;
   console.log(`SERVER ACTION LOG: [getInvoiceWithItemsById] User Role: ${userRole}. Fetching invoice details for Invoice ID: ${id}`);
 
+  // Explicitly tell Supabase which relationship to use for factoring_bids
   const { data: invoiceData, error: invoiceError } = await supabase
     .from('invoices')
     .select(`
@@ -158,7 +159,7 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
         discount_fee_percentage,
         status,
         created_at,
-        financier_profile:profiles!financier_id ( full_name )
+        financier_profile:profiles!id=financier_id ( full_name )
       )
     `)
     .eq('id', id)
@@ -173,11 +174,11 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
   if (!invoiceData) {
     let rlsHint = `RLS Hint for role ${userRole} (attempting to fetch invoice ${id}): `;
     if (userRole === UserRole.MSME) {
-      rlsHint += `Ensure RLS policy on 'public.invoices' allows SELECT for 'user_id' == auth.uid(). Also check RLS for 'public.invoice_items' (via invoice_id and user_id) and 'public.factoring_bids' (via invoice_id and user_id). The join for 'factoring_bids.financier_profile' also requires SELECT on 'public.profiles' for the MSME user to see the financier's name.`;
+      rlsHint += `Ensure RLS policy on 'public.invoices' allows SELECT for 'user_id' == auth.uid(). Also check RLS for 'public.invoice_items' (via invoice_id and user_id) and 'public.factoring_bids!factoring_bids_invoice_id_fkey' (via invoice_id and user_id). The join for 'factoring_bids.financier_profile' also requires SELECT on 'public.profiles' for the MSME user to see the financier's name (using profiles!id=factoring_bids.financier_id).`;
     } else if (userRole === UserRole.BUYER) {
-      rlsHint += `Ensure RLS policy on 'public.invoices' allows SELECT for 'client_email' == auth.email(). Also check RLS for 'public.invoice_items' (via invoice_id and client_email) and 'public.factoring_bids' (via invoice_id and client_email). The join for 'factoring_bids.financier_profile' also requires SELECT on 'public.profiles' for the BUYER user to see the financier's name.`;
+      rlsHint += `Ensure RLS policy on 'public.invoices' allows SELECT for 'client_email' == auth.email(). Also check RLS for 'public.invoice_items' (via invoice_id and client_email) and 'public.factoring_bids!factoring_bids_invoice_id_fkey' (via invoice_id and client_email). The join for 'factoring_bids.financier_profile' also requires SELECT on 'public.profiles' for the BUYER user to see the financier's name (using profiles!id=factoring_bids.financier_id).`;
     } else if (userRole === UserRole.FINANCIER) {
-      rlsHint += `Ensure RLS on 'public.invoices' allows SELECT for relevant 'factoring_status'. Also check RLS for 'public.invoice_items', 'public.factoring_bids' (including joining own profile for 'financier_profile'), and 'public.profiles' for MSME/Buyer names.`;
+      rlsHint += `Ensure RLS on 'public.invoices' allows SELECT for relevant 'factoring_status'. Also check RLS for 'public.invoice_items', 'public.factoring_bids!factoring_bids_invoice_id_fkey' (including joining own profile for 'financier_profile' via profiles!id=factoring_bids.financier_id), and 'public.profiles' for MSME/Buyer names.`;
     } else {
       rlsHint += "Unknown role or context. Please verify all RLS policies on invoices, invoice_items, factoring_bids, and profiles.";
     }
@@ -747,5 +748,3 @@ export async function acceptFactoringBidAction(
   revalidatePath('/dashboard');
   return { success: true };
 }
-
-    
