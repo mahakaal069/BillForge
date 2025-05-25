@@ -158,8 +158,7 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
         bid_amount,
         discount_fee_percentage,
         status,
-        created_at,
-        financier_profile:profiles!id=financier_id ( full_name )
+        created_at
       )
     `)
     .eq('id', id)
