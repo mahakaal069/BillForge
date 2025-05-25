@@ -1,26 +1,39 @@
+"use client";
 
-'use client';
-
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { supabase } from '@/lib/supabase/client';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AppLogo } from '@/components/AppLogo';
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { supabase } from "@/lib/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { AppLogo } from "@/components/AppLogo";
 import { useToast } from "@/hooks/use-toast";
-import { UserRole } from '@/types/user';
-import { UserPlus } from 'lucide-react'; // Using Lucide for consistency
+import { UserRole } from "@/types/user";
+import {
+  UserPlus,
+  Mail,
+  Lock,
+  User,
+  Building2,
+  ArrowRight,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export default function SignupPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [role, setRole] = useState<UserRole | ''>('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [role, setRole] = useState<UserRole | "">("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -31,7 +44,8 @@ export default function SignupPage() {
       setError("Please select a role.");
       toast({
         title: "Role Required",
-        description: "Please select whether you are an MSME, Buyer, or Financier.",
+        description:
+          "Please select whether you are an MSME, Buyer, or Financier.",
         variant: "destructive",
       });
       return;
@@ -39,8 +53,6 @@ export default function SignupPage() {
     setLoading(true);
     setError(null);
     setMessage(null);
-
-    console.log('Attempting signup with user data:', { fullName, role, email });
 
     const { data, error: signUpError } = await supabase.auth.signUp({
       email,
@@ -55,139 +67,258 @@ export default function SignupPage() {
 
     if (signUpError) {
       setError(signUpError.message);
-       toast({
+      toast({
         title: "Signup Failed",
         description: signUpError.message,
         variant: "destructive",
       });
-    } else if (data.user && data.user.identities && data.user.identities.length === 0) {
-      setMessage("User may already exist or confirmation is pending. Please check your email or try logging in.");
+    } else if (
+      data.user &&
+      data.user.identities &&
+      data.user.identities.length === 0
+    ) {
+      setMessage(
+        "User may already exist or confirmation is pending. Please check your email or try logging in."
+      );
       toast({
         title: "Confirmation May Be Required",
-        description: "User may already exist or confirmation is pending. Please check your email or try logging in.",
+        description:
+          "User may already exist or confirmation is pending. Please check your email or try logging in.",
       });
     } else if (data.user) {
-      setMessage('Signup successful! Please check your email to confirm your account if required, or try logging in. Profile data should be available after login if the backend trigger succeeded.');
+      setMessage(
+        "Signup successful! Please check your email to confirm your account."
+      );
       toast({
         title: "Signup Successful!",
-        description: "Your account has been created. You can now try logging in.",
+        description:
+          "Your account has been created. Please check your email to confirm your account.",
       });
-      // You could potentially redirect to login here or to a "check your email" page
-      // router.push('/login');
-    } else {
-       setError("An unexpected error occurred during signup.");
-       toast({
-        title: "Signup Error",
-        description: "An unexpected error occurred. Please try again.",
-        variant: "destructive",
-      });
+      router.push("/login");
     }
     setLoading(false);
   };
 
+  const getRoleIcon = (roleValue: string) => {
+    switch (roleValue) {
+      case UserRole.MSME:
+        return Building2;
+      case UserRole.BUYER:
+        return User;
+      case UserRole.FINANCIER:
+        return Building2;
+      default:
+        return User;
+    }
+  };
+
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
-      <div className="w-full max-w-4xl rounded-xl shadow-2xl bg-card text-card-foreground md:flex">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-background to-muted/50 p-4">
+      <div className="w-full max-w-4xl rounded-2xl shadow-2xl bg-card text-card-foreground md:grid md:grid-cols-5 overflow-hidden">
         {/* Branding Column */}
-        <div className="hidden md:flex md:w-1/2 flex-col items-center justify-center bg-muted p-12 text-center rounded-l-xl">
-          <Link href="/" className="mb-6">
-            <AppLogo className="h-16 w-16 text-primary" />
-          </Link>
-          <h1 className="text-3xl font-bold text-primary mb-3">Join BillForge</h1>
-          <p className="text-muted-foreground mb-8">
-            Create your account to start managing invoices efficiently. Choose your role and get started!
-          </p>
-          <UserPlus className="w-24 h-24 text-primary/70" />
+        <div className="relative hidden md:flex md:col-span-2 flex-col items-center justify-center bg-primary p-12 text-primary-foreground">
+          <div className="absolute inset-0 bg-primary/10 backdrop-blur-sm" />
+          <div className="relative z-10 flex flex-col items-center">
+            <Link
+              href="/"
+              className="mb-6 transition-transform hover:scale-105"
+            >
+              <AppLogo className="h-16 w-16" />
+            </Link>
+            <h1 className="text-3xl font-bold mb-3">Join BillForge</h1>
+            <p className="text-primary-foreground/80 text-center mb-8">
+              Create your account to start managing invoices efficiently. Choose
+              your role and get started!
+            </p>
+            <UserPlus className="w-24 h-24 opacity-80" />
+          </div>
+          <div className="absolute inset-0 bg-gradient-to-t from-primary/20 to-transparent" />
         </div>
 
         {/* Form Column */}
-        <div className="w-full md:w-1/2 p-8 sm:p-12">
-          {/* Mobile Header (Logo only) */}
-           <div className="md:hidden text-center mb-8">
+        <div className="w-full md:col-span-3 p-8 sm:p-12">
+          {/* Mobile Header */}
+          <div className="md:hidden text-center mb-8">
             <Link href="/" className="inline-block">
-              <AppLogo className="h-12 w-12 mx-auto text-primary" />
+              <AppLogo className="h-12 w-12 mx-auto text-primary transition-transform hover:scale-105" />
             </Link>
-             <h2 className="text-2xl font-semibold mt-4">Create Your Account</h2>
-          </div>
-           <div className="md:hidden text-center mb-6">
-             <p className="text-sm text-muted-foreground">Join BillForge today to streamline your invoicing.</p>
-           </div>
-
-           {/* Desktop Header (Text only) */}
-          <div className="hidden md:block text-center mb-8">
-            <h2 className="text-3xl font-bold text-foreground">Create Your Account</h2>
-            <p className="text-muted-foreground mt-2">Join BillForge today to streamline your invoicing.</p>
+            <h2 className="text-2xl font-semibold mt-4">Create Your Account</h2>
+            <p className="text-sm text-muted-foreground mt-2">
+              Join BillForge today to streamline your invoicing.
+            </p>
           </div>
 
-          <form onSubmit={handleSignup} className="space-y-4">
-            <div className="space-y-1">
-              <Label htmlFor="fullName">Full Name</Label>
-              <Input
-                id="fullName"
-                type="text"
-                placeholder="Your Name"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                required
-                disabled={loading}
-                className="h-11"
-              />
+          {/* Desktop Header */}
+          <div className="hidden md:block mb-8">
+            <h2 className="text-3xl font-bold">Create Your Account</h2>
+            <p className="text-muted-foreground mt-2">
+              Join BillForge today to streamline your invoicing.
+            </p>
+          </div>
+
+          <form onSubmit={handleSignup} className="space-y-5">
+            <div className="space-y-2">
+              <Label htmlFor="fullName" className="text-sm font-medium">
+                Full Name
+              </Label>
+              <div className="relative">
+                <User className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
+                <Input
+                  id="fullName"
+                  type="text"
+                  placeholder="Your Name"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  required
+                  disabled={loading}
+                  className={cn(
+                    "h-12 pl-10 transition-all duration-200",
+                    "focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  )}
+                />
+              </div>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                disabled={loading}
-                className="h-11"
-              />
+
+            <div className="space-y-2">
+              <Label htmlFor="email" className="text-sm font-medium">
+                Email Address
+              </Label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  disabled={loading}
+                  className={cn(
+                    "h-12 pl-10 transition-all duration-200",
+                    "focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  )}
+                />
+              </div>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                minLength={6}
-                required
-                disabled={loading}
-                className="h-11"
-              />
-               <p className="text-xs text-muted-foreground">Password should be at least 6 characters.</p>
+
+            <div className="space-y-2">
+              <Label htmlFor="password" className="text-sm font-medium">
+                Password
+              </Label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-3 h-5 w-5 text-muted-foreground/70" />
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  minLength={6}
+                  required
+                  disabled={loading}
+                  className={cn(
+                    "h-12 pl-10 transition-all duration-200",
+                    "focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  )}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Password must be at least 6 characters long
+              </p>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="role">I am a...</Label>
+
+            <div className="space-y-2">
+              <Label htmlFor="role" className="text-sm font-medium">
+                I am a...
+              </Label>
               <Select
                 value={role}
                 onValueChange={(value) => setRole(value as UserRole)}
                 disabled={loading}
               >
-                <SelectTrigger id="role" className="h-11" aria-required="true">
+                <SelectTrigger
+                  id="role"
+                  className={cn(
+                    "h-12 transition-all duration-200",
+                    "focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  )}
+                  aria-required="true"
+                >
                   <SelectValue placeholder="Select your role" />
-                </SelectTrigger>
+                </SelectTrigger>{" "}
                 <SelectContent>
-                  <SelectItem value={UserRole.MSME}>MSME (Enterprise/Seller)</SelectItem>
-                  <SelectItem value={UserRole.BUYER}>Buyer (Client/Customer)</SelectItem>
-                  <SelectItem value={UserRole.FINANCIER}>Financier</SelectItem>
+                  <SelectItem
+                    value={UserRole.MSME}
+                    className="relative flex h-9 cursor-default select-none items-center rounded-sm px-2 py-1.5 outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                  >
+                    <div className="inline-flex items-center gap-2 whitespace-nowrap">
+                      <Building2 className="h-4 w-4 flex-shrink-0" />
+                      MSME (Enterprise/Seller)
+                    </div>
+                  </SelectItem>
+                  <SelectItem
+                    value={UserRole.BUYER}
+                    className="relative flex h-9 cursor-default select-none items-center rounded-sm px-2 py-1.5 outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                  >
+                    <div className="inline-flex items-center gap-2 whitespace-nowrap">
+                      <User className="h-4 w-4 flex-shrink-0" />
+                      Buyer (Client/Customer)
+                    </div>
+                  </SelectItem>
+                  <SelectItem
+                    value={UserRole.FINANCIER}
+                    className="relative flex h-9 cursor-default select-none items-center rounded-sm px-2 py-1.5 outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                  >
+                    <div className="inline-flex items-center gap-2 whitespace-nowrap">
+                      <Building2 className="h-4 w-4 flex-shrink-0" />
+                      Financier
+                    </div>
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
-            {message && <p className="text-sm text-green-600">{message}</p>}
-            <Button type="submit" className="w-full h-11 text-base" disabled={loading}>
-              {loading ? 'Signing up...' : 'Sign Up'}
+
+            {error && (
+              <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+                {error}
+              </div>
+            )}
+            {message && (
+              <div className="rounded-lg bg-green-500/10 p-3 text-sm text-green-600">
+                {message}
+              </div>
+            )}
+
+            <Button
+              type="submit"
+              className={cn(
+                "w-full h-12 text-base transition-all duration-200",
+                "hover:shadow-lg hover:scale-[1.01]",
+                "active:scale-[0.99]"
+              )}
+              disabled={loading}
+            >
+              {loading ? (
+                <span className="flex items-center gap-2">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  Creating your account...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  Create Account <ArrowRight className="h-5 w-5" />
+                </span>
+              )}
             </Button>
           </form>
-          <div className="mt-6 text-center text-sm">
-            <p>
-              Already have an account?{' '}
-              <Button variant="link" asChild className="p-0 h-auto font-semibold">
-                  <Link href="/login">Login</Link>
+
+          <div className="mt-8 text-center">
+            <p className="text-sm text-muted-foreground">
+              Already have an account?{" "}
+              <Button
+                variant="link"
+                asChild
+                className="p-0 h-auto font-semibold hover:text-primary"
+              >
+                <Link href="/login">Sign in</Link>
               </Button>
             </p>
           </div>
