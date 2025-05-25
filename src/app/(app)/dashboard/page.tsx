@@ -1,5 +1,4 @@
 
-
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -69,10 +68,6 @@ export default async function DashboardPage() {
 
 
   let invoicesQuery;
-  // This join syntax tells Supabase:
-  // "For the 'profiles' table, use the 'user_id' column from the current 'invoices' table
-  // to match against the primary key of 'profiles' (which is 'id'). Then, retrieve 'full_name'."
-  // This is used to get the MSME (seller) name for Buyers and Financiers.
   const msmeProfileJoinSyntax = 'profiles!user_id(full_name)';
   let selectString = `
     id,
@@ -90,18 +85,18 @@ export default async function DashboardPage() {
   if (profile.role === UserRole.MSME) {
     invoicesQuery = supabase
       .from('invoices')
-      .select(selectString) // MSME doesn't need to join for their own name here
+      .select(selectString)
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
   } else if (profile.role === UserRole.BUYER && user.email) {
-    selectString += `,${msmeProfileJoinSyntax}`; // Add join for MSME name
+    selectString += `,${msmeProfileJoinSyntax}`;
     invoicesQuery = supabase
       .from('invoices')
       .select(selectString)
       .eq('client_email', user.email)
       .order('created_at', { ascending: false });
   } else if (profile.role === UserRole.FINANCIER) {
-    selectString += `,${msmeProfileJoinSyntax}`; // Add join for MSME name
+    selectString += `,${msmeProfileJoinSyntax}`;
     invoicesQuery = supabase
       .from('invoices')
       .select(selectString)
@@ -109,7 +104,7 @@ export default async function DashboardPage() {
       .order('created_at', { ascending: false });
   } else {
     console.warn(`Dashboard: User ${user.id} has role '${profile.role}' and email '${user.email}', which doesn't match MSME, BUYER with email, or FINANCIER for invoice fetching. Returning empty set.`);
-    invoicesQuery = supabase.from('invoices').select('*').limit(0); // Ensures query is not null
+    invoicesQuery = supabase.from('invoices').select('*').limit(0);
   }
 
 
@@ -137,15 +132,15 @@ export default async function DashboardPage() {
   const invoices: Invoice[] = (invoicesData || []).map((inv: any) => ({
     id: inv.id,
     invoiceNumber: inv.invoice_number,
-    clientName: inv.client_name, // For MSME, this is their client. For Buyer/Financier, this is the Buyer's name.
+    clientName: inv.client_name,
     sellerName: (profile.role === UserRole.BUYER || profile.role === UserRole.FINANCIER) && inv.profiles ? inv.profiles.full_name : (profile.role === UserRole.MSME ? profile.full_name : 'N/A'),
-    clientEmail: '', // Not fetched for all roles, populated as needed
-    clientAddress: '', // Not fetched for all roles
-    invoiceDate: '', // Not fetched for all roles
+    clientEmail: '',
+    clientAddress: '',
+    invoiceDate: '',
     dueDate: inv.due_date,
-    items: [], // Not fetched in dashboard list view
-    subtotal: 0, // Not fetched
-    taxAmount: 0, // Not fetched
+    items: [],
+    subtotal: 0,
+    taxAmount: 0,
     totalAmount: inv.total_amount ?? 0,
     status: inv.status as InvoiceStatus,
     is_factoring_requested: inv.is_factoring_requested,
@@ -293,7 +288,13 @@ export default async function DashboardPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {invoices.map((invoice: Invoice) => (
+              {invoices.map((invoice: Invoice) => {
+                // Diagnostic log
+                if (isBuyer) {
+                  console.log(`BUYER DASHBOARD - Invoice ID: ${invoice.id}, Factoring Status: ${invoice.factoring_status}, Is Requested: ${invoice.factoring_status === FactoringStatus.REQUESTED}`);
+                }
+                const isBuyerReviewNeeded = isBuyer && invoice.factoring_status === FactoringStatus.REQUESTED;
+                return (
                 <TableRow key={invoice.id}>
                   <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
                   <TableCell>{isMSME ? invoice.clientName : (invoice.sellerName || 'N/A')}</TableCell>
@@ -337,28 +338,25 @@ export default async function DashboardPage() {
                           </Link>
                         </Button>
                       )}
-                      <Button 
-                        variant={isBuyer && invoice.factoring_status === FactoringStatus.REQUESTED ? "default" : "outline"} 
-                        size="sm" 
+                      <Button
+                        variant={isBuyerReviewNeeded ? "default" : "outline"}
+                        size="sm"
                         asChild
-                        className={cn({
-                            "bg-primary hover:bg-primary/90 text-primary-foreground": isBuyer && invoice.factoring_status === FactoringStatus.REQUESTED,
-                        })}
                       >
                         <Link href={`/invoices/${invoice.id}/view`}>
-                           {isBuyer && invoice.factoring_status === FactoringStatus.REQUESTED ? <CheckSquare className="mr-2 h-4 w-4" /> : null}
-                          {isFinancier ? 'View Details & Bid' : 
-                           isBuyer && invoice.factoring_status === FactoringStatus.REQUESTED ? 'Review Factoring Request' : 
+                           {isBuyerReviewNeeded ? <CheckSquare className="mr-2 h-4 w-4" /> : null}
+                          {isFinancier ? 'View Details & Bid' :
+                           isBuyerReviewNeeded ? 'Review Factoring Request' :
                            isBuyer && (invoice.factoring_status !== FactoringStatus.NONE && invoice.factoring_status !== FactoringStatus.REQUESTED) ? 'View Factoring Details' :
                            'View'}
-                          {!(isBuyer && invoice.factoring_status === FactoringStatus.REQUESTED) && <ArrowUpRight className="ml-2 h-4 w-4" />}
+                          {!isBuyerReviewNeeded && <ArrowUpRight className="ml-2 h-4 w-4" />}
                         </Link>
                       </Button>
                        {isMSME && <DeleteInvoiceDialog invoiceId={invoice.id} invoiceNumber={invoice.invoiceNumber} />}
                     </div>
                   </TableCell>
                 </TableRow>
-              ))}
+              )})}
             </TableBody>
           </Table>
           )}
@@ -372,4 +370,3 @@ export default async function DashboardPage() {
     </div>
   );
 }
-    
