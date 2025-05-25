@@ -1,4 +1,5 @@
 
+
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -346,7 +347,7 @@ export default async function DashboardPage() {
                         <Link href={`/invoices/${invoice.id}/view`}>
                            {isBuyerReviewNeeded ? <CheckSquare className="mr-2 h-4 w-4" /> : null}
                           {isFinancier ? 'View Details & Bid' :
-                           isBuyerReviewNeeded ? 'Review Factoring Request' :
+                           isBuyerReviewNeeded ? 'Review / Act on Factoring' : // Changed text here
                            isBuyer && (invoice.factoring_status !== FactoringStatus.NONE && invoice.factoring_status !== FactoringStatus.REQUESTED) ? 'View Factoring Details' :
                            'View'}
                           {!isBuyerReviewNeeded && <ArrowUpRight className="ml-2 h-4 w-4" />}
@@ -370,3 +371,4 @@ export default async function DashboardPage() {
     </div>
   );
 }
+
