@@ -9,9 +9,10 @@ import { useToast } from "@/hooks/use-toast";
 import { InvoiceStatus } from '@/types/invoice';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertTriangle, Trash2 } from 'lucide-react'; // Added Trash2
+import { AlertTriangle, Trash2 } from 'lucide-react'; 
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
+import { useAuth } from '@/app/(app)/layout'; // Import useAuth
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +30,7 @@ export default function EditInvoicePage() {
   const router = useRouter();
   const params = useParams();
   const { toast } = useToast();
+  const { user, loading: authLoading } = useAuth(); // Get user and auth loading state
   const invoiceId = params.id as string;
 
   const [initialData, setInitialData] = useState<InvoiceWithItems | null>(null);
@@ -40,24 +42,39 @@ export default function EditInvoicePage() {
 
 
   useEffect(() => {
+    if (authLoading) return; // Wait for authentication to resolve
+
+    if (!user) {
+      setError("User not authenticated. Cannot fetch invoice for editing.");
+      setLoading(false);
+      return;
+    }
+
     if (!invoiceId) {
       setError("No invoice ID provided.");
       setLoading(false);
       return;
     }
-
+    
+    console.log(`CLIENT LOG: [EditInvoicePage] Attempting to call getInvoiceWithItemsById with ID: ${invoiceId}`);
     const fetchInvoice = async () => {
       setLoading(true);
       setError(null); 
       try {
         const data = await getInvoiceWithItemsById(invoiceId);
+        console.log("CLIENT LOG: [EditInvoicePage] Data received from getInvoiceWithItemsById:", data);
         if (data) {
-          setInitialData(data);
+          // Additional check to ensure only the owner (MSME) can edit
+          if (data.user_id === user.id) {
+            setInitialData(data);
+          } else {
+            setError("You do not have permission to edit this invoice.");
+          }
         } else {
           setError("Invoice not found or you don't have permission to edit it.");
         }
       } catch (err) {
-        console.error("Failed to fetch invoice for editing:", err);
+        console.error("CLIENT LOG: [EditInvoicePage] Failed to fetch invoice for editing:", err);
         setError(err instanceof Error ? err.message : "An unexpected error occurred while fetching the invoice.");
       } finally {
         setLoading(false);
@@ -65,7 +82,7 @@ export default function EditInvoicePage() {
     };
 
     fetchInvoice();
-  }, [invoiceId]);
+  }, [invoiceId, user, authLoading]); // Add user and authLoading to dependencies
 
   const handleUpdateAndSend = async (data: InvoiceFormValues) => {
     if (!initialData?.id) return;
@@ -158,7 +175,7 @@ export default function EditInvoicePage() {
     }
   };
 
-  if (loading) {
+  if (loading || authLoading) { // Show skeleton if auth is loading too
     return (
       <div className="max-w-4xl mx-auto space-y-6">
         <Skeleton className="h-10 w-1/2" />
@@ -208,7 +225,7 @@ export default function EditInvoicePage() {
             <AlertTriangle className="mr-2 h-6 w-6 text-destructive" />
             Invoice Not Found
           </CardTitle>
-          <CardDescription>The invoice you are trying to edit could not be found.</CardDescription>
+          <CardDescription>The invoice you are trying to edit could not be found or you do not have permission.</CardDescription>
         </CardHeader>
         <CardContent>
           <Button asChild>

@@ -97,13 +97,16 @@ export interface InvoiceWithItems extends Invoice {
 }
 
 export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithItems | null> {
+  console.log("SERVER ACTION LOG: [getInvoiceWithItemsById] FUNCTION EXECUTION STARTED for invoice ID:", id);
+
   const supabase = createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   
   if (!user) {
-    console.error('[getInvoiceWithItemsById] User not authenticated. Aborting fetch.');
+    console.error("SERVER ACTION LOG: [getInvoiceWithItemsById] User not authenticated. Aborting fetch.");
     return null;
   }
+  console.log("SERVER ACTION LOG: [getInvoiceWithItemsById] Authenticated User ID:", user.id);
 
   const { data: profileData, error: profileError } = await supabase
     .from('profiles')
@@ -112,13 +115,11 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
     .single();
 
   if (profileError || !profileData) {
-    console.error(`[getInvoiceWithItemsById] Error fetching profile for user ${user.id}. ProfileError:`, profileError, "ProfileData:", profileData, "Aborting fetch.");
+    console.error(`SERVER ACTION LOG: [getInvoiceWithItemsById] Error fetching profile for user ${user.id}. ProfileError:`, profileError, "ProfileData:", profileData, "Aborting fetch.");
     return null; 
   }
+  console.log(`SERVER ACTION LOG: [getInvoiceWithItemsById START] User ID: ${user.id}, Role: ${profileData.role}, Attempting to fetch Invoice ID: ${id}`);
   
-  console.log(`[getInvoiceWithItemsById START] User ID: ${user.id}, Role: ${profileData.role}, Attempting to fetch Invoice ID: ${id}`);
-
-  // Fetch the invoice and its items and bids
   const { data: invoiceData, error: invoiceError } = await supabase
     .from('invoices')
     .select(`
@@ -164,25 +165,25 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
     .single();
 
   if (invoiceError) {
-    console.error(`[getInvoiceWithItemsById DB QUERY ERROR] For Invoice ID ${id}, User: ${user.id}. Supabase error:`, invoiceError);
+    console.error(`SERVER ACTION LOG: [getInvoiceWithItemsById DB QUERY ERROR] For Invoice ID ${id}, User: ${user.id}. Supabase error:`, invoiceError);
     return null;
   }
 
   if (!invoiceData) {
-    console.warn(`[getInvoiceWithItemsById INVOICE DATA NULL POST-QUERY] For Invoice ID ${id}, User: ${user.id}, Role: ${profileData.role}.`);
-    console.warn(`IMPORTANT: This usually means Row Level Security (RLS) policies are blocking the read access for this user.`);
-    console.warn(`Please verify the following RLS policies in your Supabase project for the user's role (${profileData.role}):`);
-    console.warn(`  1. On 'public.invoices': Can the user SELECT the invoice with id '${id}'?`);
-    console.warn(`     - If MSME: Does policy allow SELECT if 'user_id' == auth.uid() ('${user.id}')?`);
-    console.warn(`     - If BUYER: Does policy allow SELECT if 'client_email' == auth.email() and role is BUYER?`);
-    console.warn(`     - If FINANCIER: Does policy allow SELECT if 'factoring_status' is appropriate and role is FINANCIER?`);
-    console.warn(`  2. On 'public.invoice_items': Can the user SELECT items for invoice '${id}' based on their role and relationship to the invoice?`);
-    console.warn(`  3. On 'public.factoring_bids': Can the user SELECT bids for invoice '${id}' based on their role? (MSME should see their bids, Buyer might see bids, Financier their own).`);
-    console.warn(`Also, double-check that an invoice with ID '${id}' actually exists.`);
+    console.warn(`SERVER ACTION LOG: [getInvoiceWithItemsById INVOICE DATA NULL POST-QUERY] For Invoice ID ${id}, User: ${user.id}, Role: ${profileData.role}.`);
+    console.warn(`SERVER ACTION LOG: This usually means Row Level Security (RLS) policies are blocking the read access for this user for this specific invoice or its related items/bids.`);
+    console.warn(`SERVER ACTION LOG: Please verify the following RLS policies in your Supabase project for the user's role (${profileData.role}):`);
+    console.warn(`  1. On 'public.invoices': Can the user (role: ${profileData.role}) SELECT the invoice with id '${id}'?`);
+    console.warn(`     - If MSME: Does policy allow SELECT if 'user_id' == auth.uid() ('${user.id}')? Current invoice user_id (if fetched but RLS on items/bids failed later): ${invoiceData?.user_id}`);
+    console.warn(`     - If BUYER: Does policy allow SELECT if 'client_email' == auth.email() AND role is BUYER? Current invoice client_email: ${invoiceData?.client_email}`);
+    console.warn(`     - If FINANCIER: Does policy allow SELECT if 'factoring_status' is appropriate AND role is FINANCIER? Current invoice factoring_status: ${invoiceData?.factoring_status}`);
+    console.warn(`  2. On 'public.invoice_items': Can the user (role: ${profileData.role}) SELECT items for invoice '${id}' based on their role and relationship to the invoice?`);
+    console.warn(`  3. On 'public.factoring_bids': Can the user (role: ${profileData.role}) SELECT bids for invoice '${id}' based on their role?`);
+    console.warn(`SERVER ACTION LOG: Also, double-check that an invoice with ID '${id}' actually exists and wasn't deleted.`);
     return null;
   }
   
-  console.log(`[getInvoiceWithItemsById] Fetched raw invoiceData from DB (first 500 chars):`, JSON.stringify(invoiceData).substring(0, 500));
+  console.log(`SERVER ACTION LOG: [getInvoiceWithItemsById] Fetched raw invoiceData from DB (first 500 chars):`, JSON.stringify(invoiceData).substring(0, 500));
 
   const isOwner = invoiceData.user_id === user.id && profileData.role === UserRole.MSME;
   
@@ -190,20 +191,22 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
   if (profileData.role === UserRole.BUYER && user.email && invoiceData.client_email) {
     isBuyerRecipient = invoiceData.client_email.toLowerCase() === user.email.toLowerCase();
   }
+  console.log(`SERVER ACTION LOG: [getInvoiceWithItemsById Auth Pre-Check] User Email: ${user.email}, Invoice Client Email: ${invoiceData.client_email}, isBuyerRecipient: ${isBuyerRecipient}`);
+
 
   const isFinancierAndViewable = profileData.role === UserRole.FINANCIER &&
     (invoiceData.factoring_status === FactoringStatus.BUYER_ACCEPTED ||
      invoiceData.factoring_status === FactoringStatus.PENDING_FINANCING ||
      invoiceData.factoring_status === FactoringStatus.FINANCED);
 
-  console.log(`[getInvoiceWithItemsById Auth Check for Invoice ${invoiceData.id}] User: ${user.id}, Role: ${profileData.role}, Invoice Owner ID: ${invoiceData.user_id}, Invoice Client Email: ${invoiceData.client_email}. Calculated Permissions - isOwner: ${isOwner}, isBuyerRecipient: ${isBuyerRecipient}, isFinancierAndViewable: ${isFinancierAndViewable}`);
+  console.log(`SERVER ACTION LOG: [getInvoiceWithItemsById Auth Check for Invoice ${invoiceData.id}] User: ${user.id}, Role: ${profileData.role}, Invoice Owner ID: ${invoiceData.user_id}. Calculated Permissions - isOwner: ${isOwner}, isBuyerRecipient: ${isBuyerRecipient}, isFinancierAndViewable: ${isFinancierAndViewable}`);
 
   if (!isOwner && !isBuyerRecipient && !isFinancierAndViewable) {
-    console.warn(`[getInvoiceWithItemsById JS Auth FAILED] User ${user.id} (Role: ${profileData.role}) not authorized by JS logic to view invoice ${invoiceData.id}.`);
+    console.warn(`SERVER ACTION LOG: [getInvoiceWithItemsById JS Auth FAILED] User ${user.id} (Role: ${profileData.role}) not authorized by JS logic to view invoice ${invoiceData.id}.`);
     return null;
   }
   
-  console.log(`[getInvoiceWithItemsById JS Auth SUCCEEDED] User ${user.id} (Role: ${profileData.role}) authorized to view invoice ${invoiceData.id}. Proceeding to map data.`);
+  console.log(`SERVER ACTION LOG: [getInvoiceWithItemsById JS Auth SUCCEEDED] User ${user.id} (Role: ${profileData.role}) authorized to view invoice ${invoiceData.id}. Proceeding to map data.`);
   
   const invoice: InvoiceWithItems = {
     id: invoiceData.id,
@@ -239,7 +242,7 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
         discount_fee_percentage: bid.discount_fee_percentage,
         status: bid.status as FactoringBid['status'],
         created_at: bid.created_at,
-        // financier_name: bid.profiles ? bid.profiles.full_name : `Financier (ID: ${bid.financier_id.substring(0, 8)})`,
+        // financier_name: bid.profiles ? bid.profiles.full_name : `Financier (ID: ${bid.financier_id.substring(0, 8)})`, // Temporarily removed for RLS debugging
     })),
     created_at: invoiceData.created_at,
     updated_at: invoiceData.updated_at,

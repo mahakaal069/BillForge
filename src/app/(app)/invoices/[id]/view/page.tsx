@@ -74,18 +74,19 @@ export default function ViewInvoicePage() {
         setLoading(false);
         return;
       }
+      console.log(`CLIENT LOG: [ViewInvoicePage] Attempting to call getInvoiceWithItemsById with ID: ${invoiceId}`);
       setLoading(true);
       setError(null);
       try {
         const data = await getInvoiceWithItemsById(invoiceId);
-        console.log("++++++++++++++++++++ ", data)
+        console.log("CLIENT LOG: [ViewInvoicePage] Data received from getInvoiceWithItemsById:", data);
         if (data) {
           setInvoice(data);
         } else {
           setError("Invoice not found or you don't have permission to view it.");
         }
       } catch (err) {
-        console.error("Failed to fetch invoice:", err);
+        console.error("CLIENT LOG: [ViewInvoicePage] Failed to fetch invoice:", err);
         setError(err instanceof Error ? err.message : "An unexpected error occurred.");
       } finally {
         setLoading(false);
@@ -93,8 +94,17 @@ export default function ViewInvoicePage() {
     };
 
   useEffect(() => {
-    fetchInvoiceData();
-  }, [invoiceId]);
+    if (invoiceId && user) { // Ensure invoiceId and user are available before fetching
+        fetchInvoiceData();
+    } else if (!invoiceId) {
+        setError("No invoice ID provided in URL.");
+        setLoading(false);
+    } else if (!user && !loading) { // Check !loading to avoid premature error if auth is still loading
+        setError("User not authenticated. Cannot fetch invoice.");
+        setLoading(false);
+    }
+    // Add user to dependency array if its presence is critical for the fetch logic (e.g. for auth checks within fetchInvoiceData)
+  }, [invoiceId, user]); 
 
   const handleDeleteInvoice = async () => {
     if (!invoice || !user || invoice.user_id !== user.id) return;
@@ -298,11 +308,11 @@ export default function ViewInvoicePage() {
   }
 
   const isMSMEOwner = user && profile?.role === UserRole.MSME && invoice.user_id === user.id;
-  const isBuyerRecipient = user && profile?.role === UserRole.BUYER && invoice.clientEmail === user.email;
+  const isBuyerRecipient = user && profile?.role === UserRole.BUYER && invoice.clientEmail && user.email && invoice.clientEmail.toLowerCase() === user.email.toLowerCase();
   const isFinancier = user && profile?.role === UserRole.FINANCIER;
 
   const canRequestFactoring = isMSMEOwner &&
-                              (invoice.status === InvoiceStatus.SENT || invoice.status === InvoiceStatus.OVERDUE) && // MSMEs can request for overdue as well
+                              (invoice.status === InvoiceStatus.SENT || invoice.status === InvoiceStatus.OVERDUE) && 
                               invoice.factoring_status === FactoringStatus.NONE;
 
   const canBuyerActOnFactoring = isBuyerRecipient && invoice.factoring_status === FactoringStatus.REQUESTED;
@@ -326,7 +336,7 @@ export default function ViewInvoicePage() {
                     <Badge variant={
                         invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED || invoice.factoring_status === FactoringStatus.PENDING_FINANCING ? "default" :
                         invoice.factoring_status === FactoringStatus.BUYER_REJECTED ? "destructive" :
-                        invoice.factoring_status === FactoringStatus.FINANCED ? "default" : // Using accent for financed
+                        invoice.factoring_status === FactoringStatus.FINANCED ? "default" : 
                         "secondary"
                        } className={cn("flex items-center gap-1.5", {
                         "bg-green-500 text-white hover:bg-green-600": invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED || invoice.factoring_status === FactoringStatus.PENDING_FINANCING,
