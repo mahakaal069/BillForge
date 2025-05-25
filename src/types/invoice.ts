@@ -29,13 +29,11 @@ export interface FactoringBid {
   id: string;
   invoice_id: string;
   financier_id: string;
-  financier_name?: string; // For display, joined from profiles
   bid_amount: number;
   discount_fee_percentage: number;
   status: 'PENDING' | 'ACCEPTED_BY_MSME' | 'REJECTED_BY_MSME' | 'WITHDRAWN_BY_FINANCIER';
   created_at: string;
-  // Optional: for joining profile data
-  financier?: {
+  financier_profile?: { // To hold joined data from profiles table
     full_name: string | null;
   } | null;
 }
@@ -61,10 +59,11 @@ export interface Invoice {
   created_at?: string; // ISO string timestamp
   updated_at?: string; // ISO string timestamp
   sellerName?: string; // Added for buyer's dashboard view (MSME's name)
-  msme?: { full_name: string | null }; // For joining MSME name on dashboard
+  // msme?: { full_name: string | null }; // For joining MSME name on dashboard - This structure is directly on invoice now for sellerName
   assigned_financier_id?: string | null;
   accepted_bid_id?: string | null;
   bids?: FactoringBid[]; // For displaying bids on the invoice view page
+  profiles?: { full_name: string | null }; // For joining MSME name (sellerName) on dashboard
 }
 
 export interface ClientHistoryOption {

@@ -66,10 +66,11 @@ export function BidList({ bids, onAcceptBid, canAccept, isAcceptingBidId, accept
             const isThisBidAccepted = bid.id === acceptedBidId;
             const isProcessingThisBid = isAcceptingBidId === bid.id;
             const disableAcceptButton = !canAccept || !!acceptedBidId || bid.status !== 'PENDING' || isProcessingThisBid;
+            const financierDisplayName = bid.financier_profile?.full_name || `Financier (${bid.financier_id?.substring(0, 8) || 'N/A'}...)`;
 
             return (
               <TableRow key={bid.id} className={cn({"bg-green-50 hover:bg-green-100": isThisBidAccepted})}>
-                <TableCell className="font-medium">{bid.financier?.full_name || bid.financier_id.substring(0,8) + '...'}</TableCell>
+                <TableCell className="font-medium">{financierDisplayName}</TableCell>
                 <TableCell>{formatCurrency(bid.bid_amount)}</TableCell>
                 <TableCell>{bid.discount_fee_percentage.toFixed(2)}%</TableCell>
                 <TableCell>{formatCurrency(netToMSME)}</TableCell>

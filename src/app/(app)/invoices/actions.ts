@@ -97,7 +97,7 @@ export interface InvoiceWithItems extends Invoice {
 }
 
 export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithItems | null> {
-  console.log("SERVER ACTION LOG: [getInvoiceWithItemsById START] Attempting to fetch Invoice ID:", id);
+  console.log("SERVER ACTION LOG: [getInvoiceWithItemsById START] User trying to fetch Invoice ID:", id);
 
   const supabase = createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -158,9 +158,8 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
         bid_amount,
         discount_fee_percentage,
         status,
-        created_at
-        -- Re-enable if RLS on profiles is confirmed okay for BUYER to see financier names
-        -- profiles!financier_id ( full_name )
+        created_at,
+        financier_profile:profiles!financier_id(full_name)
       )
     `)
     .eq('id', id)
@@ -173,16 +172,17 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
   }
 
   if (!invoiceData) {
+    const rlsHintForMSME = `MSME (Role: ${userRole}, ID: ${user.id}): Ensure RLS policy on 'public.invoices' allows SELECT for 'user_id' == auth.uid(). Also check 'public.invoice_items' (via invoice_id and user_id) and 'public.factoring_bids' (via invoice_id and user_id).`;
+    const rlsHintForBUYER = `BUYER (Role: ${userRole}, Email: ${user.email}): Ensure RLS policy on 'public.invoices' allows SELECT for 'client_email' == auth.email(). Also check 'public.invoice_items' (via invoice_id and client_email) and 'public.factoring_bids' (via invoice_id and client_email). Crucially, ensure the BUYER can also SELECT from 'public.profiles' to get financier names (this join happens within the bids fetch).`;
+    const rlsHintForFINANCIER = `FINANCIER (Role: ${userRole}): Ensure RLS on 'public.invoices' allows SELECT for relevant 'factoring_status'. Also check 'public.invoice_items' and 'public.factoring_bids'. The join for MSME/Buyer names also requires SELECT on 'public.profiles'.`;
+    let specificRLSHint = "RLS Hint: Please verify RLS policies. Unknown role or context.";
+    if (userRole === UserRole.MSME) specificRLSHint = rlsHintForMSME;
+    else if (userRole === UserRole.BUYER) specificRLSHint = rlsHintForBUYER;
+    else if (userRole === UserRole.FINANCIER) specificRLSHint = rlsHintForFINANCIER;
+
     console.warn(`SERVER ACTION LOG: [getInvoiceWithItemsById INVOICE DATA NULL POST-QUERY] For Invoice ID ${id}, User: ${user.id}, Role: ${userRole}.`);
-    console.warn(`  This usually means Row Level Security (RLS) policies are blocking read access for this user/role combination for this specific invoice or its related items/bids.`);
-    console.warn(`  Please verify RLS policies in Supabase for the user's role (${userRole}) on:`);
-    console.warn(`    1. 'public.invoices': Can SELECT invoice '${id}'?`);
-    if (userRole === UserRole.MSME) console.warn(`       - MSME: Policy check: 'user_id' == auth.uid() ('${user.id}')? Current invoice user_id: ${invoiceData?.user_id}`);
-    if (userRole === UserRole.BUYER) console.warn(`       - BUYER: Policy check: 'client_email' == auth.email() AND role is BUYER? Current invoice client_email: ${invoiceData?.client_email}`);
-    if (userRole === UserRole.FINANCIER) console.warn(`       - FINANCIER: Policy check: 'factoring_status' appropriate AND role is FINANCIER? Current invoice factoring_status: ${invoiceData?.factoring_status}`);
-    console.warn(`    2. 'public.invoice_items': Can SELECT items for invoice '${id}'?`);
-    console.warn(`    3. 'public.factoring_bids': Can SELECT bids for invoice '${id}'? (This requires hint: factoring_bids!factoring_bids_invoice_id_fkey)`);
-    console.warn(`    4. 'public.profiles' (if joining financier names): Can SELECT profiles (specifically financier profiles)?`);
+    console.warn(`  This usually means Row Level Security (RLS) policies are blocking read access for this user/role combination for this specific invoice or its related items/bids, or the join to profiles for financier names.`);
+    console.warn(`  ${specificRLSHint}`);
     console.warn(`  Also, double-check that an invoice with ID '${id}' actually exists.`);
     return null;
   }
@@ -245,7 +245,7 @@ export async function getInvoiceWithItemsById(id: string): Promise<InvoiceWithIt
         discount_fee_percentage: bid.discount_fee_percentage,
         status: bid.status as FactoringBid['status'],
         created_at: bid.created_at,
-        // financier_name: bid.profiles ? bid.profiles.full_name : `Financier (ID: ${bid.financier_id.substring(0, 8)})`, // Temporarily removed
+        financier_profile: bid.financier_profile ? { full_name: bid.financier_profile.full_name } : null
     })),
     created_at: invoiceData.created_at,
     updated_at: invoiceData.updated_at,
@@ -777,3 +777,4 @@ export async function acceptFactoringBidAction(
   revalidatePath('/dashboard');
   return { success: true };
 }
+
