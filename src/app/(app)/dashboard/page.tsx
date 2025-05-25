@@ -1,4 +1,5 @@
 
+
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,7 +8,7 @@ import type { Invoice } from '@/types/invoice';
 import { InvoiceStatus, FactoringStatus } from '@/types/invoice';
 import { InvoiceStatusBadge } from '@/components/InvoiceStatusBadge';
 import { format } from 'date-fns';
-import { ArrowUpRight, PlusCircle, FileText, AlertTriangle, Edit, TrendingUp, Handshake, XCircle, Landmark, Briefcase, Building } from 'lucide-react';
+import { ArrowUpRight, PlusCircle, FileText, AlertTriangle, Edit, TrendingUp, Handshake, XCircle, Landmark, Briefcase, Building, CheckSquare } from 'lucide-react';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { DeleteInvoiceDialog } from '@/components/invoice/DeleteInvoiceDialog';
@@ -137,8 +138,7 @@ export default async function DashboardPage() {
     id: inv.id,
     invoiceNumber: inv.invoice_number,
     clientName: inv.client_name, // For MSME, this is their client. For Buyer/Financier, this is the Buyer's name.
-    // For Buyers/Financiers, inv.profiles should contain the MSME's (seller's) details
-    sellerName: (profile.role === UserRole.BUYER || profile.role === UserRole.FINANCIER) && inv.profiles ? inv.profiles.full_name : (profile.role === UserRole.MSME ? profile.full_name : undefined),
+    sellerName: (profile.role === UserRole.BUYER || profile.role === UserRole.FINANCIER) && inv.profiles ? inv.profiles.full_name : (profile.role === UserRole.MSME ? profile.full_name : 'N/A'),
     clientEmail: '', // Not fetched for all roles, populated as needed
     clientAddress: '', // Not fetched for all roles
     invoiceDate: '', // Not fetched for all roles
@@ -230,7 +230,7 @@ export default async function DashboardPage() {
                  <Building className="h-6 w-6 text-primary"/>
                 <div>
                     <CardTitle>Invoices Sent To You</CardTitle>
-                    <CardDescription>These are invoices where you are listed as the client.</CardDescription>
+                    <CardDescription>These are invoices where you are listed as the client. You can review factoring requests here.</CardDescription>
                 </div>
             </CardHeader>
         </Card>
@@ -306,12 +306,14 @@ export default async function DashboardPage() {
                   <TableCell>
                     {invoice.factoring_status && invoice.factoring_status !== FactoringStatus.NONE ? (
                        <Badge variant={
+                        invoice.factoring_status === FactoringStatus.REQUESTED ? "secondary" :
                         invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED ? "default" :
                         invoice.factoring_status === FactoringStatus.BUYER_REJECTED ? "destructive" :
                         invoice.factoring_status === FactoringStatus.PENDING_FINANCING ? "secondary" :
                         invoice.factoring_status === FactoringStatus.FINANCED ? "default" :
                         "secondary"
                        } className={cn("flex items-center gap-1.5", {
+                        "bg-yellow-500 text-black hover:bg-yellow-600": invoice.factoring_status === FactoringStatus.REQUESTED,
                         "bg-green-500 text-white hover:bg-green-600": invoice.factoring_status === FactoringStatus.BUYER_ACCEPTED || invoice.factoring_status === FactoringStatus.PENDING_FINANCING,
                         "bg-accent text-accent-foreground hover:bg-accent/90": invoice.factoring_status === FactoringStatus.FINANCED,
                        })}>
@@ -335,10 +337,21 @@ export default async function DashboardPage() {
                           </Link>
                         </Button>
                       )}
-                      <Button variant="outline" size="sm" asChild>
+                      <Button 
+                        variant={isBuyer && invoice.factoring_status === FactoringStatus.REQUESTED ? "default" : "outline"} 
+                        size="sm" 
+                        asChild
+                        className={cn({
+                            "bg-primary hover:bg-primary/90 text-primary-foreground": isBuyer && invoice.factoring_status === FactoringStatus.REQUESTED,
+                        })}
+                      >
                         <Link href={`/invoices/${invoice.id}/view`}>
-                          {isFinancier ? 'View Details & Bid' : 'View'}
-                          <ArrowUpRight className="ml-2 h-4 w-4" />
+                           {isBuyer && invoice.factoring_status === FactoringStatus.REQUESTED ? <CheckSquare className="mr-2 h-4 w-4" /> : null}
+                          {isFinancier ? 'View Details & Bid' : 
+                           isBuyer && invoice.factoring_status === FactoringStatus.REQUESTED ? 'Review Factoring Request' : 
+                           isBuyer && (invoice.factoring_status !== FactoringStatus.NONE && invoice.factoring_status !== FactoringStatus.REQUESTED) ? 'View Factoring Details' :
+                           'View'}
+                          {!(isBuyer && invoice.factoring_status === FactoringStatus.REQUESTED) && <ArrowUpRight className="ml-2 h-4 w-4" />}
                         </Link>
                       </Button>
                        {isMSME && <DeleteInvoiceDialog invoiceId={invoice.id} invoiceNumber={invoice.invoiceNumber} />}
@@ -359,6 +372,4 @@ export default async function DashboardPage() {
     </div>
   );
 }
-
-
     
