@@ -97,7 +97,7 @@ export default async function DashboardPage() {
       .eq('client_email', user.email)
       .order('created_at', { ascending: false });
   } else if (profile.role === UserRole.FINANCIER) {
-    selectString += `,${msmeProfileJoinSyntax}`;
+    selectString += `,${msmeProfileJoinSyntax}`; // To get MSME name
     invoicesQuery = supabase
       .from('invoices')
       .select(selectString)
@@ -135,13 +135,13 @@ export default async function DashboardPage() {
     invoiceNumber: inv.invoice_number,
     clientName: inv.client_name,
     sellerName: (profile.role === UserRole.BUYER || profile.role === UserRole.FINANCIER) && inv.profiles ? inv.profiles.full_name : (profile.role === UserRole.MSME ? profile.full_name : 'N/A'),
-    clientEmail: '',
-    clientAddress: '',
-    invoiceDate: '',
+    clientEmail: '', // Not directly used in dashboard list but part of Invoice type
+    clientAddress: '', // Not directly used in dashboard list
+    invoiceDate: '', // Not directly used in dashboard list
     dueDate: inv.due_date,
-    items: [],
-    subtotal: 0,
-    taxAmount: 0,
+    items: [], // Items not needed for dashboard list
+    subtotal: 0, // Not needed for dashboard list
+    taxAmount: 0, // Not needed for dashboard list
     totalAmount: inv.total_amount ?? 0,
     status: inv.status as InvoiceStatus,
     is_factoring_requested: inv.is_factoring_requested,
@@ -237,7 +237,7 @@ export default async function DashboardPage() {
                 <Landmark className="h-6 w-6 text-primary"/>
                 <div>
                     <CardTitle>Factoring Opportunities</CardTitle>
-                    <CardDescription>Invoices accepted by buyers or pending financing bids.</CardDescription>
+                    <CardDescription>Invoices accepted by buyers or pending financing bids. Review details and place your bids.</CardDescription>
                 </div>
             </CardHeader>
         </Card>
@@ -290,7 +290,6 @@ export default async function DashboardPage() {
             </TableHeader>
             <TableBody>
               {invoices.map((invoice: Invoice) => {
-                // Diagnostic log
                 if (isBuyer) {
                   console.log(`BUYER DASHBOARD - Invoice ID: ${invoice.id}, Factoring Status: ${invoice.factoring_status}, Is Requested: ${invoice.factoring_status === FactoringStatus.REQUESTED}`);
                 }
@@ -343,11 +342,12 @@ export default async function DashboardPage() {
                         variant={isBuyerReviewNeeded ? "default" : "outline"}
                         size="sm"
                         asChild
+                        className={cn({"bg-primary hover:bg-primary/90 text-primary-foreground": isBuyerReviewNeeded})}
                       >
                         <Link href={`/invoices/${invoice.id}/view`}>
                            {isBuyerReviewNeeded ? <CheckSquare className="mr-2 h-4 w-4" /> : null}
                           {isFinancier ? 'View Details & Bid' :
-                           isBuyerReviewNeeded ? 'Review / Act on Factoring' : // Changed text here
+                           isBuyerReviewNeeded ? 'Review / Act on Factoring' : 
                            isBuyer && (invoice.factoring_status !== FactoringStatus.NONE && invoice.factoring_status !== FactoringStatus.REQUESTED) ? 'View Factoring Details' :
                            'View'}
                           {!isBuyerReviewNeeded && <ArrowUpRight className="ml-2 h-4 w-4" />}

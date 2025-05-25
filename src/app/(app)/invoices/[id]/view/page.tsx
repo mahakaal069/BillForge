@@ -56,7 +56,7 @@ export default function ViewInvoicePage() {
   const params = useParams();
   const router = useRouter();
   const { toast } = useToast();
-  const { user, profile } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
   const invoiceId = params.id as string;
 
   const [invoice, setInvoice] = useState<InvoiceWithItems | null>(null);
@@ -66,7 +66,7 @@ export default function ViewInvoicePage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isRequestingFactoring, setIsRequestingFactoring] = useState(false);
   const [isBuyerActionLoading, setIsBuyerActionLoading] = useState(false);
-  const [isAcceptingBid, setIsAcceptingBid] = useState<string | null>(null); // Stores ID of bid being accepted
+  const [isAcceptingBid, setIsAcceptingBid] = useState<string | null>(null); 
 
   const fetchInvoiceData = async () => {
       if (!invoiceId) {
@@ -94,20 +94,23 @@ export default function ViewInvoicePage() {
     };
 
   useEffect(() => {
-    if (invoiceId && user) { // Ensure invoiceId and user are available before fetching
-        fetchInvoiceData();
-    } else if (!invoiceId) {
+    if (authLoading) return; 
+
+    if (!invoiceId) {
         setError("No invoice ID provided in URL.");
         setLoading(false);
-    } else if (!user && !loading) { // Check !loading to avoid premature error if auth is still loading
+        return;
+    }
+    if (!user) { 
         setError("User not authenticated. Cannot fetch invoice.");
         setLoading(false);
+        return;
     }
-    // Add user to dependency array if its presence is critical for the fetch logic (e.g. for auth checks within fetchInvoiceData)
-  }, [invoiceId, user]); 
+    fetchInvoiceData();
+  }, [invoiceId, user, authLoading]); 
 
   const handleDeleteInvoice = async () => {
-    if (!invoice || !user || invoice.user_id !== user.id) return;
+    if (!invoice || !user || profile?.role !== UserRole.MSME || invoice.user_id !== user.id) return;
     setIsDeleting(true);
     try {
       const result = await deleteInvoiceAction(invoice.id);
@@ -167,7 +170,7 @@ export default function ViewInvoicePage() {
   };
 
   const handleBuyerFactoringAction = async (actionType: 'accept' | 'reject') => {
-    if (!invoice || !user || profile?.role !== UserRole.BUYER || invoice.clientEmail !== user.email) return;
+    if (!invoice || !user || profile?.role !== UserRole.BUYER || invoice.clientEmail?.toLowerCase() !== user.email?.toLowerCase()) return;
     setIsBuyerActionLoading(true);
     try {
       const actionFn = actionType === 'accept' ? acceptFactoringByBuyerAction : rejectFactoringByBuyerAction;
@@ -205,7 +208,7 @@ export default function ViewInvoicePage() {
           title: 'Bid Placed Successfully!',
           description: `Your bid for invoice #${invoice.invoiceNumber} has been submitted.`,
         });
-        fetchInvoiceData(); // Refresh data
+        fetchInvoiceData(); 
         return true;
       } else {
         toast({
@@ -235,7 +238,7 @@ export default function ViewInvoicePage() {
           title: 'Bid Accepted!',
           description: `You have accepted a bid for invoice #${invoice.invoiceNumber}. The invoice is now marked as Financed.`,
         });
-        fetchInvoiceData(); // Refresh data
+        fetchInvoiceData(); 
       } else {
         toast({
           title: 'Error Accepting Bid',
@@ -255,7 +258,7 @@ export default function ViewInvoicePage() {
   };
 
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="max-w-4xl mx-auto space-y-6">
         <Skeleton className="h-10 w-1/2" />
@@ -509,7 +512,6 @@ export default function ViewInvoicePage() {
         </CardContent>
       </Card>
 
-      {/* Factoring Section */}
       {canFinancierBid && (
         <Card className="mt-6">
           <CardHeader>
