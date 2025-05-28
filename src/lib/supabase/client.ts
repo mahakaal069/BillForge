@@ -11,4 +11,32 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
-export const supabase = createBrowserClient(supabaseUrl!, supabaseAnonKey!);
+export const supabase = createBrowserClient(supabaseUrl!, supabaseAnonKey!, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    flowType: 'pkce',
+    debug: process.env.NODE_ENV === 'development'
+  },
+  cookies: {
+    get(name) {
+      if (typeof document === 'undefined') return '';
+      const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
+      return match ? decodeURIComponent(match[3]) : '';
+    },
+    set(name, value, options = {}) {
+      if (typeof document === 'undefined') return;
+      let cookie = name + '=' + encodeURIComponent(value);
+      if (options.maxAge) cookie += '; Max-Age=' + options.maxAge;
+      if (options.path) cookie += '; Path=' + options.path;
+      cookie += '; SameSite=Lax';
+      if (process.env.NODE_ENV === 'production') cookie += '; Secure';
+      document.cookie = cookie;
+    },
+    remove(name, options = {}) {
+      if (typeof document === 'undefined') return;
+      document.cookie = name + '=; Max-Age=0; Path=' + (options.path || '/');
+    }
+  }
+});

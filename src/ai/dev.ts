@@ -1,4 +1,5 @@
 import { config } from 'dotenv';
-config();
+config({ path: '.env.local' });
 
-import '@/ai/flows/suggest-payment-terms.ts';
+// Register all flows
+import '@/ai/flows/suggest-payment-terms';

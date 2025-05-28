@@ -14,8 +14,8 @@
 
 'use server';
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { ai } from '@/ai/genkit';
+import { z } from 'genkit';
 
 /**
  * Input schema for the suggestPaymentTerms flow.
@@ -49,42 +49,44 @@ const SuggestPaymentTermsOutputSchema = z.object({
 export type SuggestPaymentTermsOutput = z.infer<typeof SuggestPaymentTermsOutputSchema>;
 
 /**
- * Wrapper function to call the suggestPaymentTermsFlow.
- *
- * @param {SuggestPaymentTermsInput} input - The input to the flow.
- * @returns {Promise<SuggestPaymentTermsOutput>} The output of the flow.
+ * Flow for suggesting payment terms using AI.
+ * @param input The input parameters for the suggestion.
+ * @returns The suggested payment terms and reasoning.
  */
 export async function suggestPaymentTerms(input: SuggestPaymentTermsInput): Promise<SuggestPaymentTermsOutput> {
-  return suggestPaymentTermsFlow(input);
-}
+  const response = await ai.chat.completions.create({
+    messages: [
+      {
+        role: 'system',
+        content: 'You are an AI assistant that helps determine optimal payment terms for invoices.'
+      },
+      {
+        role: 'user',
+        content: `Given the following invoice details, client history, and industry standards, suggest optimal payment terms for the invoice.
 
-/**
- * Prompt definition for suggesting payment terms.
- */
-const suggestPaymentTermsPrompt = ai.definePrompt({
-  name: 'suggestPaymentTermsPrompt',
-  input: {schema: SuggestPaymentTermsInputSchema},
-  output: {schema: SuggestPaymentTermsOutputSchema},
-  prompt: `Given the following invoice details, client history, and industry standards, suggest optimal payment terms for the invoice.
+Invoice Amount: ${input.invoiceAmount}
+Client History: ${input.clientHistory}
+Industry Standards: ${input.industryStandards}
 
-Invoice Amount: {{{invoiceAmount}}}
-Client History: {{{clientHistory}}}
-Industry Standards: {{{industryStandards}}}
+Consider all these factors, and reason step by step. Format your response as:
+Terms: [suggested payment terms]
+Reasoning: [detailed explanation]`
+      }
+    ],
+    temperature: 0.7,
+    maxTokens: 500
+  });
 
-Consider all these factors, and reason step by step before providing the suggested payment terms and a brief explanation of your reasoning.`,
-});
+  const content = response.choices[0]?.message?.content || '';
+  const termsMatch = content.match(/Terms:\s*(.*?)(?=\nReasoning:|$)/s);
+  const reasoningMatch = content.match(/Reasoning:\s*(.*?)$/s);
 
-/**
- * Genkit flow for suggesting payment terms.
- */
-const suggestPaymentTermsFlow = ai.defineFlow(
-  {
-    name: 'suggestPaymentTermsFlow',
-    inputSchema: SuggestPaymentTermsInputSchema,
-    outputSchema: SuggestPaymentTermsOutputSchema,
-  },
-  async input => {
-    const {output} = await suggestPaymentTermsPrompt(input);
-    return output!;
+  if (!termsMatch || !reasoningMatch) {
+    throw new Error('Failed to parse AI response into the expected format');
   }
-);
+
+  return {
+    suggestedTerms: termsMatch[1].trim(),
+    reasoning: reasoningMatch[1].trim()
+  };
+}

@@ -1,8 +1,16 @@
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
+  html {
+    font-family: "Poppins", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
   :root {
     --background: 210 17% 95%; /* #F0F2F5 Light Gray */
     --foreground: 220 10% 25%; /* Darker Gray for text */
@@ -84,6 +92,15 @@
     --sidebar-border: 220 15% 25%;
     --sidebar-ring: 197 71% 53%;
   }
+
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
 }
 
 @layer base {
@@ -93,4 +110,107 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+@layer utilities {
+  .animate-shimmer {
+    animation: shimmer 2s infinite;
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.1) 50%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    background-size: 200% 100%;
+  }
+
+  .hover-lift {
+    transition: transform 0.2s ease-in-out;
+  }
+
+  .hover-lift:hover {
+    transform: translateY(-2px);
+  }
+}
+
+@layer components {
+  .card {
+    @apply transition-all duration-200;
+  }
+
+  .badge {
+    @apply font-medium;
+  }
+
+  .table {
+    @apply w-full;
+  }
+
+  .table th {
+    @apply font-medium text-muted-foreground tracking-tight;
+  }
+
+  .table td {
+    @apply py-4;
+  }
+
+  .table tr {
+    @apply transition-colors;
+  }
+
+  /* Enhanced scrollbar styling */
+  ::-webkit-scrollbar {
+    @apply w-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-muted/30 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-muted rounded-full hover:bg-muted/80 transition-colors;
+  }
+
+  /* Card hover effects */
+  .card-hover {
+    @apply transition-all duration-300 hover:shadow-lg;
+  }
+
+  .card-hover:hover {
+    @apply transform scale-[1.01];
+  }
+
+  /* Button animations */
+  .button-hover {
+    @apply transition-all duration-200;
+  }
+
+  .button-hover:hover {
+    @apply transform scale-[1.02];
+  }
+
+  .button-hover:active {
+    @apply transform scale-[0.98];
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    @apply bg-clip-text text-transparent bg-gradient-to-r;
+  }
+}
+
+/* Fade in animation for page transitions */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-transition {
+  animation: fadeIn 0.3s ease-out;
 }

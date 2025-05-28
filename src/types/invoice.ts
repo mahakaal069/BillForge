@@ -5,6 +5,7 @@ export enum InvoiceStatus {
   PAID = 'PAID',
   OVERDUE = 'OVERDUE',
   VOID = 'VOID',
+  PENDING = "PENDING",
 }
 
 export enum FactoringStatus {
@@ -14,7 +15,11 @@ export enum FactoringStatus {
   BUYER_REJECTED = 'BUYER_REJECTED', // Buyer rejected
   PENDING_FINANCING = 'PENDING_FINANCING', // Open for financier bids (at least one bid placed)
   FINANCED = 'FINANCED', // A bid was accepted, funds disbursed (conceptually)
-  REPAID = 'REPAID', // Buyer repaid financier (conceptually)
+  REPAID = 'REPAID',
+  ACCEPTED = "ACCEPTED",
+  REJECTED = "REJECTED",
+  BIDDING = "BIDDING",
+  PENDING = "PENDING", // Buyer repaid financier (conceptually)
 }
 
 export interface InvoiceItem {
@@ -45,6 +50,8 @@ export interface Invoice {
   clientName: string; // Buyer's name
   clientEmail: string; // Buyer's email
   clientAddress: string;
+  clientHistory: string;
+  industryStandards: string;
   invoiceDate: string; // ISO string date 'YYYY-MM-DD'
   dueDate: string; // ISO string date 'YYYY-MM-DD'
   items: InvoiceItem[];

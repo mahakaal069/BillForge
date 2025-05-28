@@ -1,62 +1,75 @@
-
 "use client";
 
-import type { Control, FieldErrors, UseFormGetValues, UseFormSetValue } from 'react-hook-form'; // Added UseFormSetValue
-import { useFieldArray } from 'react-hook-form';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Trash2, PlusCircle } from 'lucide-react';
-import type { InvoiceFormValues } from './InvoiceForm'; 
-import { Label } from '../ui/label';
-import { cn } from '@/lib/utils';
+import type { UseFormReturn } from "react-hook-form";
+import { useFieldArray } from "react-hook-form";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Trash2, PlusCircle } from "lucide-react";
+import type { InvoiceFormValues } from "./InvoiceForm";
+import { cn } from "@/lib/utils";
 
 interface InvoiceItemsTableProps {
-  control: Control<InvoiceFormValues>;
-  errors: FieldErrors<InvoiceFormValues>;
-  setValue: UseFormSetValue<InvoiceFormValues>; // Use the more specific type
-  getValues: UseFormGetValues<InvoiceFormValues>;
-  disabled?: boolean; // Add disabled prop
+  form: UseFormReturn<InvoiceFormValues>;
 }
 
-function formatCurrency(amount: number | undefined | null) { // Allow null
-  if (typeof amount !== 'number' || isNaN(amount)) return 'N/A';
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+function formatCurrency(amount: number | undefined | null) {
+  if (typeof amount !== "number" || isNaN(amount)) return "N/A";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(amount);
 }
 
-export function InvoiceItemsTable({ control, errors, setValue, getValues, disabled = false }: InvoiceItemsTableProps) {
+export function InvoiceItemsTable({ form }: InvoiceItemsTableProps) {
+  const {
+    formState: { errors },
+    control,
+    register,
+  } = form;
+
   const { fields, append, remove } = useFieldArray({
     control,
-    name: 'items',
+    name: "items",
   });
 
-  const handleItemChange = (index: number, field: 'quantity' | 'unitPrice', value: string) => {
-    const quantity = field === 'quantity' ? parseFloat(value) : parseFloat(getValues(`items.${index}.quantity` as any) || '0');
-    const unitPrice = field === 'unitPrice' ? parseFloat(value) : parseFloat(getValues(`items.${index}.unitPrice` as any) || '0');
-    
-    if (!isNaN(quantity) && !isNaN(unitPrice)) {
-      setValue(`items.${index}.total`, quantity * unitPrice, { shouldValidate: true });
+  const handleItemChange = (
+    index: number,
+    field: "quantity" | "unitPrice",
+    value: string
+  ) => {
+    const items = [...fields];
+    const currentItem = items[index];
+
+    if (field === "quantity") {
+      currentItem.quantity = parseFloat(value) || 0;
     } else {
-       setValue(`items.${index}.total`, 0, { shouldValidate: true });
+      currentItem.unitPrice = parseFloat(value) || 0;
     }
 
-    const items = getValues('items');
+    currentItem.total =
+      (currentItem.quantity || 0) * (currentItem.unitPrice || 0);
+
+    // Calculate totals
     const subtotal = items.reduce((sum, item) => sum + (item.total || 0), 0);
-    const taxAmount = 0; 
+    const taxAmount = 0;
     const totalAmount = subtotal + taxAmount;
 
-    setValue('subtotal', subtotal);
-    setValue('taxAmount', taxAmount);
-    setValue('totalAmount', totalAmount);
-  };
-
-  const addNewItem = () => {
-    append({ description: '', quantity: 1, unitPrice: 0, total: 0, id: `temp-${Math.random().toString(36).substring(7)}` });
+    form.setValue(`items.${index}.total`, currentItem.total);
+    form.setValue("subtotal", subtotal);
+    form.setValue("taxAmount", taxAmount);
+    form.setValue("totalAmount", totalAmount);
   };
 
   return (
     <div className="space-y-4">
-      <Label className="text-lg font-semibold">Invoice Items</Label>
       <Table>
         <TableHeader>
           <TableRow>
@@ -68,71 +81,108 @@ export function InvoiceItemsTable({ control, errors, setValue, getValues, disabl
           </TableRow>
         </TableHeader>
         <TableBody>
-          {fields.map((item, index) => (
-            <TableRow key={item.id}>
+          {fields.map((field, index) => (
+            <TableRow key={field.id}>
               <TableCell>
                 <Input
-                  {...control.register(`items.${index}.description` as const)}
+                  {...register(`items.${index}.description`)}
                   placeholder="Item description"
-                  className={cn(errors.items?.[index]?.description && 'border-destructive')}
-                  disabled={disabled}
+                  className={cn(
+                    errors.items?.[index]?.description && "border-destructive"
+                  )}
                 />
                 {errors.items?.[index]?.description && (
-                  <p className="text-xs text-destructive mt-1">{errors.items[index]?.description?.message}</p>
+                  <p className="text-xs text-destructive mt-1">
+                    {errors.items[index]?.description?.message}
+                  </p>
                 )}
               </TableCell>
               <TableCell>
                 <Input
                   type="number"
-                  {...control.register(`items.${index}.quantity` as const, { valueAsNumber: true })}
+                  {...register(`items.${index}.quantity`, {
+                    valueAsNumber: true,
+                    onChange: (e) =>
+                      handleItemChange(index, "quantity", e.target.value),
+                  })}
                   placeholder="1"
-                  onChange={(e) => handleItemChange(index, 'quantity', e.target.value)}
-                  className={cn("w-20", errors.items?.[index]?.quantity && 'border-destructive')}
-                  disabled={disabled}
+                  className={cn(
+                    "w-20",
+                    errors.items?.[index]?.quantity && "border-destructive"
+                  )}
                 />
               </TableCell>
               <TableCell>
                 <Input
                   type="number"
                   step="0.01"
-                  {...control.register(`items.${index}.unitPrice` as const, { valueAsNumber: true })}
+                  {...register(`items.${index}.unitPrice`, {
+                    valueAsNumber: true,
+                    onChange: (e) =>
+                      handleItemChange(index, "unitPrice", e.target.value),
+                  })}
                   placeholder="0.00"
-                  onChange={(e) => handleItemChange(index, 'unitPrice', e.target.value)}
-                  className={cn("w-28", errors.items?.[index]?.unitPrice && 'border-destructive')}
-                  disabled={disabled}
+                  className={cn(
+                    "w-28",
+                    errors.items?.[index]?.unitPrice && "border-destructive"
+                  )}
                 />
               </TableCell>
-              <TableCell>
-                {formatCurrency(getValues(`items.${index}.total`))}
-              </TableCell>
+              <TableCell>{formatCurrency(field.total)}</TableCell>
               <TableCell className="text-right">
-                {!disabled && (
-                  <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)} aria-label="Remove item" disabled={disabled}>
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={() => {
+                    remove(index);
+                    // Recalculate totals after removing an item
+                    const remainingItems = fields.filter((_, i) => i !== index);
+                    const subtotal = remainingItems.reduce(
+                      (sum, item) => sum + (item.total || 0),
+                      0
+                    );
+                    const taxAmount = 0;
+                    const totalAmount = subtotal + taxAmount;
+                    form.setValue("subtotal", subtotal);
+                    form.setValue("taxAmount", taxAmount);
+                    form.setValue("totalAmount", totalAmount);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  <span className="sr-only">Remove item</span>
+                </Button>
               </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
-      {!disabled && (
-        <Button type="button" variant="outline" onClick={addNewItem} className="mt-2" disabled={disabled}>
-          <PlusCircle className="mr-2 h-4 w-4" /> Add Item
-        </Button>
-      )}
-
-      <div className="mt-6 flex justify-end">
-        <div className="w-full max-w-xs space-y-2">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Subtotal:</span>
-            <span>{formatCurrency(getValues('subtotal'))}</span>
-          </div>
-          <div className="flex justify-between border-t pt-2">
-            <span className="font-semibold text-lg">Total Amount:</span>
-            <span className="font-semibold text-lg">{formatCurrency(getValues('totalAmount'))}</span>
-          </div>
-        </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="mt-2"
+        onClick={() => {
+          append({
+            description: "",
+            quantity: 1,
+            unitPrice: 0,
+            total: 0,
+            id: `temp-${Math.random().toString(36).substring(7)}`,
+          });
+        }}
+      >
+        <PlusCircle className="mr-2 h-4 w-4" />
+        Add Item
+      </Button>
+      <div className="mt-4 text-sm text-muted-foreground">
+        <p>Total Items: {fields.length}</p>
+        <p>Subtotal: {formatCurrency(form.getValues("subtotal"))}</p>
+        <p>Tax: {formatCurrency(form.getValues("taxAmount"))}</p>
+        <p className="font-semibold text-foreground">
+          Total Amount: {formatCurrency(form.getValues("totalAmount"))}
+        </p>
       </div>
     </div>
   );

@@ -1,75 +1,78 @@
-
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
-import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  if (!supabaseUrl || !supabaseAnonKey) {
-    console.error(
-      'CRITICAL ERROR (Middleware): Supabase URL or Anon Key is missing. ' +
-      'Ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in your environment. ' +
-      'If running locally, check .env.local and restart the dev server. ' +
-      'For deployments, check your hosting provider s environment variable settings.'
-    );
-    // Optional: return a generic error response or redirect, though Supabase client init will also throw
-    // For now, letting it proceed to the Supabase client init to throw its own more specific error
-    // which the user is currently seeing. The console.error above is for server logs.
-     throw new Error('Middleware: Supabase environment variables are not set. Check server logs.');
-  }
-
-  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      get(name: string) {
-        return req.cookies.get(name)?.value;
+  // Create Supabase client with cookies
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return req.cookies.get(name)?.value;
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          res.cookies.set({
+            name,
+            value,
+            ...options,
+          });
+        },
+        remove(name: string, options: CookieOptions) {
+          res.cookies.set({
+            name,
+            value: '',
+            ...options,
+          });
+        },
       },
-      set(name: string, value: string, options: CookieOptions) {
-        req.cookies.set({ name, value, ...options });
-        // Update response cookies as well
-        res.cookies.set({ name, value, ...options });
-      },
-      remove(name: string, options: CookieOptions) {
-        req.cookies.set({ name, value: '', ...options });
-        // Update response cookies as well
-        res.cookies.set({ name, value: '', ...options });
-      },
-    },
-  });
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    }
+  );
 
   const { pathname } = req.nextUrl;
+  // Define protected and public routes
+  const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/signup');
+  const isApiRoute = pathname.startsWith('/api');
+  const isStaticRoute = ['/_next', '/favicon.ico', '/static', '/.well-known'].some(route => pathname.startsWith(route));
 
-  // Allow access to auth pages and root page (which redirects to dashboard or login)
-  if (['/login', '/signup', '/'].includes(pathname) || pathname.startsWith('/_next') || pathname.startsWith('/api')) {
-    // If user is logged in and tries to access login/signup, redirect to dashboard
-     if (session && (pathname === '/login' || pathname === '/signup')) {
-      return NextResponse.redirect(new URL('/dashboard', req.url));
-    }
+  // Don't handle static assets or API routes
+  if (isStaticRoute || isApiRoute) {
     return res;
   }
 
-  // If no session and trying to access a protected route (e.g., /dashboard, /invoices/new)
-  if (!session && (pathname.startsWith('/dashboard') || pathname.startsWith('/invoices') || pathname.startsWith('/analytics') )) {
-    const redirectUrl = req.nextUrl.clone();
-    redirectUrl.pathname = '/login';
-    if (pathname !== '/dashboard') { // Add returnTo only if not already trying for dashboard
-        redirectUrl.searchParams.set('returnTo', pathname);
-    }
-    return NextResponse.redirect(redirectUrl);
-  }
-  
-  // Refresh session for authenticated users on any navigation to protected routes
-  if (session) {
-    await supabase.auth.getUser(); // This refreshes the session cookie
-  }
+  try {
+    // Get the session without auto-refresh
+    const { data: { session }, error } = await supabase.auth.getSession();
 
-  return res;
+    // If there's an error getting the session, let the client handle it
+    if (error) {
+      console.error('Session error:', error);
+      return res;
+    }
+
+    // For auth routes (login/signup), redirect to dashboard if already authenticated
+    if (isAuthRoute) {
+      if (session) {
+        return NextResponse.redirect(new URL('/dashboard', req.url));
+      }
+      return res;
+    }
+
+    // For all other routes, require authentication
+    if (!session && pathname !== '/') {
+      return NextResponse.redirect(new URL('/login', req.url));
+    }
+
+    // If we have a session, allow access to the requested route
+    return res;
+  } catch (error) {
+    console.error('Auth middleware error:', error);
+    // On error, allow the request to proceed - the client-side auth check will handle it
+    return res;
+  }
 }
 
 export const config = {
